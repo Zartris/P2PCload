@@ -29,10 +29,14 @@ app.post('/api/kademlia/join', function (req, res) {
 
 app.get('/api/kademlia/nodes/:id', function (req, res) {
     var id = req.params["id"];
-
-    
     
     res.send(id);
+})
+
+app.post('/api/kademlia/ping', (req,res) => {
+    const randID = req.get("ID");
+    res.writeHead(200 , {"ID": randID});
+    res.send();
 })
 
 app.listen(port, function () {
