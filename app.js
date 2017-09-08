@@ -3,33 +3,37 @@ const ip = require('ip');
 const crypto = require('crypto');
 
 const app = express();
+app.set("view engine", "pug");
 
 const port = 3000;
 const alpha = 3;
 const B = 8;
 const k = 10;
-var id = 0;
+var id = undefined;
 
 var buckets = [];
 
 /**
  * Joins the kademlia network.
  */
-app.post('/api/kademlia/join', function (req, res) {
+app.post('/api/kademlia/join', (req, res) => {
 
     // Generate ID
     generateId();
 
     // Put known in bucket
     
-
     // iterateFindNode on  this  })
     res.send("ok");
 })
 
-app.get('/api/kademlia/nodes/:id', function (req, res) {
-    var id = req.params["id"];
-    
+app.get('/api/kademlia', (req, res) =>{
+    if(id != undefined) res.render("index", {nodeid: id, bucketlist: buckets});
+    else res.render("notInNetwork", {address: ip.address() + ":" + port});
+})
+
+app.get('/api/kademlia/nodes/:id', (req, res) => {
+    var id = req.params["id"];  
     res.send(id);
 })
 
@@ -39,7 +43,7 @@ app.post('/api/kademlia/ping', (req,res) => {
     res.send();
 })
 
-app.listen(port, function () {
+app.listen(port, () => {
     console.log('Example app listening on port 3000!')
 })  
 
