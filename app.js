@@ -33,28 +33,30 @@ class Bucket {
     }
 
     put(triple) {
-        if(this.triples.length < k) {
+        if(!this.contains(triple) && this.triples.length < k) {
             this.triples.push(triple);
         }
         else if(!this.contains(triple)) {
-            leastRecentTriple = this.triples[this.triples.length-1];
+            leastRecentTriple = this.triples[0];
             let options = {
-                host: triple.address,
-                port: triple.port,
+                host: leastRecentTriple.address,
+                port: leastRecentTriple.port,
                 path: "/api/kademlia/ping",
                 method: "POST"
             };
+            var that = this; //WHAT?!
             request(options, (err,res,body) => {
-                winston.debug("PING of" + triple.id + " returned response " + res.statusCode);
+                winston.debug("PING of" + leastRecentTriple.id + " returned response " + res.statusCode);
                 if(err || res.statusCode != 200) {
-                    this.triples[this.triples.length] = triple;
+                    that.triples.splice(0);
+                    that.triples.push(triple);
                 }
             });
         }
         else {
             let index = this.triples.map(JSON.stringify).indexOf(JSON.stringify(triple));
-            this.triples = this.triples.splice();
-            this.triples[this.triples.length] = triple;
+            this.triples = this.triples.splice(index);
+            this.triples.push(triple);
         }
     }
 
@@ -69,8 +71,6 @@ const k = process.argv[5] ? parseInt(process.argv[5]) : 10;
 var id = undefined;
 generateId();
 var buckets = [];
-var testTriple = new Triple("192.168.0.114","3000","113");
-putTripleInBucket(testTriple);
 
 /**
  * Joins the kademlia network.
@@ -83,9 +83,10 @@ app.post('/api/kademlia/join', (req, res) => {
                     req.header("node_id"));
     putTripleInBucket(joinTriple);
     winston.info("Attempting to join " + joinTriple.toString());
-    // iterateFindNode on  this  })
+    // iterateFindNode on this
     nodeLookup(id);
-    res.send("ok");
+    res.statusCode = 200;
+    res.send();
 })
 
 /**
@@ -104,21 +105,25 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
     var reqID = parseInt(req.params["id"]);
     winston.debug("Requested ID: " + reqID);
     var closest = getNClosest(reqID, k);
-    const randID = req.get("ID");
+    
+    const randID = req.get("id");
+    let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
+    putTripleInBucket(triple);
+
     res.contentType("application/json");
-    res.setHeader("ID", randID);
+    res.setHeader("id", randID);
     res.statusCode = 200;
     res.send(JSON.stringify(closest));
     winston.info("FIND_NODE(" + reqID + ") returned " + closest)
 })
 
 app.post('/api/kademlia/ping', (req,res) => {
-    const randID = req.get("ID");
-    res.writeHead(200 , {"ID": randID}); // Remember to return random ID
+    const randID = req.get("id");
+    res.writeHead(200 , {"id": randID}); // Remember to return random ID
     let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
     putTripleInBucket(triple);
     res.send();
-    winston.info("Ping recieved from " + req.hostname);
+    winston.info("Ping recieved from " + req.hostname + ":" + req.port);
 })
 
 app.listen(port, () => {
@@ -134,27 +139,34 @@ function nodeLookup(reqID) {
     let closestNode = undefined;
     let closest = getNClosest(reqID, alpha);
     // Perform alpha async FIND_NODE calls
-    let makeReq = function(triple){
-        let options = {
-            host: triple.address,
-            path: "/api/kademlia/nodes/" + triple.id,
-            port: triple.port,
-            ID: Math.random()*Math.pow(2,B), //TODO: This is a placeholder. Replace this with actual safe randomizer,
-            node_id: id,
-            node_port: port,
-            node_address: ip.address()
-        };
-        request.get(options, (err, res, body) => {
-            if(!err && res.statusCode == 200) {
-                let results = JSON.parse(body);
-                return results;
-            }
-        })
-    }
     let allResults = []; //Put actual results here (remember to exclude duplicates)
-
+    async.map(closest, (triple, callback) => {
+        let options = {
+            //host: triple.address,
+            //path: "/api/kademlia/nodes/" + triple.id,
+            uri: "http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + triple.id,
+            headers: {
+                "node_id": id,
+                "node_port": port,
+                "node_address": ip.address(),
+                "id": Math.random()*Math.pow(2,B) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+            },
+            method: "GET"
+        };
+        request(options, (err, res, body) => {
+            if(!err && res.statusCode === 200) {
+                let results = JSON.parse(body);
+                callback(err, results);
+            }
+            else callback(err, []);
+        })
+    },
+    (err, results) => {
+        // When all calls are finished (basically, this version waits)
+        winston.debug("Node lookup results: " + (results === [] ? "Nothing!" : results))
+    })
     // Aggregate k closest results (sort results by distance and take the first k)
-    let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
+    //let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
     // Perform async FIND_NODE on alpha closest of the k
     // Continue until nothing new is established
     return closestNode;
@@ -162,7 +174,7 @@ function nodeLookup(reqID) {
 
 function getNClosest(reqID, n) {
     let dist = distance(id, reqID);
-    let bucketNumber = dist == 0 ? 0 : Math.floor(Math.log2(dist));
+    let bucketNumber = dist === 0 ? 0 : Math.floor(Math.log2(dist));
     let closest = [];
     for(let i = bucketNumber; i <= B; i++) {
         if(closest.length < n) {
@@ -208,8 +220,12 @@ function generateId() {
 }
 
 function putTripleInBucket(triple) {
+    if (triple.id === id) {
+        winston.debug("Attempted to add self to bucket");
+        return;
+    }
     const dist = distance(id, triple.id);
-    const i = dist == 0 ? 0 : Math.floor(Math.log2(dist));
+    const i = dist === 0 ? 0 : Math.floor(Math.log2(dist));
 
     if (buckets[i] instanceof Bucket) {
         buckets[i].put(triple);
