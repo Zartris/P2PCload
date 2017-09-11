@@ -2,7 +2,48 @@ doctype html
 html
     head
         title= "Kademlia"
+        link(rel="stylesheet", href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css", integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M", crossorigin="anonymous")
+
     body
-        h1 Node for Kademlia Network!
-        p Node ID:= #{nodeid}
-        p Buckets:= #{bucketlist}
+        div.container
+            h1 Node: #{nodeaddress}:#{nodeport} = #{nodeid}
+    -       var balues = (bucketlist === undefined ? [] : bucketlist)
+        div.container
+            div.row
+                div.col-9
+                    div.panel
+                        h2.panel-heading Buckets:
+                        table.table
+                            tr
+                                th Bucket
+                                th 
+                            each val, index in balues
+                                - var bucket = (val === undefined ? [] : val.triples)
+                                tr
+                                    td=index
+                                    each tr in bucket
+                                        td
+                                            a(href= "http://" + tr.ip + ":" + tr.port + "/api/kademlia") #{tr}
+                                    else
+                                        td Empty Bucket
+                            else
+                                tr 
+                                    td Empty Buckets
+                                    td
+                div.col-3
+                    h2.panel-heading Join Network:
+                    form(method="POST" action="/api/kademlia/join")
+                        div.form-group
+                            label(for='node_id') Node ID: 
+                            input.form-control(type="text", placeholder="000" name="node_id")
+
+                        div.form-group
+                            label(for='node_address') Node Address: 
+                            input.form-control(type="text", placeholder="127.0.0.1" name="node_address")
+                        
+                        div.form-group
+                            label(for='node_port') Node Port: 
+                            input.form-control(type="text", placeholder="3000" name="node_port")
+                        
+                        button.btn.btn-primary(type="submit") Join network
+                        
