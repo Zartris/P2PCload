@@ -101,14 +101,21 @@ app.post('/api/kademlia/join', (req, res, next) => {
     putTripleInBucket(joinTriple);
     winston.info("Join " + joinTriple.toString());
     // iterateFindNode on this
-    nodeLookup(id);
-    res.statusCode = 200;
-    res.render("joined", {
-        nodeid: id, 
-        bucketlist: buckets, 
-        nodeaddress: ip.address(), 
-        nodeport: port});
-    res.send();
+
+    nodeLookup(id, (resultTriples) => {
+        // Put all the new triples into buckets.
+        resultTriples.forEach((triple) => {
+            putTripleInBucket(triple)
+        })
+
+        res.statusCode = 200;
+        res.render("joined", {
+            nodeid: id, 
+            bucketlist: buckets, 
+            nodeaddress: ip.address(), 
+            nodeport: port});
+        res.send();
+    })    
 })
 
 /**
@@ -135,11 +142,16 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
     let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
     putTripleInBucket(triple);
 
+    // Don't include the requester node in the 'closest' array.
+    var newClosest = closest.filter( (trpl) => {
+        return trpl.id !== triple.id
+    })
+
     res.contentType("application/json");
     res.setHeader("id", randID);
     res.statusCode = 200;
-    res.send(JSON.stringify(closest));
-    winston.info("FIND_NODE(" + reqID + ") from " + triple + " returned " + (closest ? "Nothing!" : closest))
+    res.send(JSON.stringify(newClosest));
+    winston.info("FIND_NODE(" + reqID + ") from " + triple + " returned " + (closest ? closest : "nothing!"))
 })
 
 app.post('/api/kademlia/ping', (req,res) => {
@@ -160,44 +172,126 @@ app.listen(port, () => {
  * @param {*} id 
  */
 
-function nodeLookup(reqID) {
-    let closestNode = undefined;
-    let closest = getNClosest(reqID, alpha);
-    // Perform alpha async FIND_NODE calls
-    let allResults = []; //Put actual results here (remember to exclude duplicates)
-    async.map(closest, (triple, callback) => {
-        let options = {
-            //host: triple.address,
-            //path: "/api/kademlia/nodes/" + triple.id,
-            uri: "http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + triple.id,
-            headers: {
-                "node_id": id,
-                "node_port": port,
-                "node_address": ip.address(),
-                "id": Math.random()*Math.pow(2,B) //TODO: This is a placeholder. Replace this with actual safe randomizer,
-            },
-            method: "GET"
-        };
-        winston.debug("Calling FIND_NODE on " + triple + "...")
-        request(options, (err, res, body) => {
-            if(!err && res.statusCode === 200) {
-                let results = JSON.parse(body);
-                winston.debug("FIND_NODE on " + triple + " returned <" + results + ">");
-                callback(err, results);
-            }
-            else callback(err, []);
+function nodeLookup(reqID, finalCallback) {
+    var shortlist = getNClosest(reqID, alpha);
+    var nodesContacted = [];
+    var closestNode = shortlist[0]; // Is this correct?
+    var closestNodeChanged = false;
+
+    // Closure for making the FIND_NODE calls.
+    function makeFindNodeCalls(triples, callback) {
+        let allResults = []; //Put actual results here (remember to exclude duplicates)
+
+        // Add the contacted nodes to the array.
+        nodesContacted.concat(triples);
+
+        async.map(triples, (triple, mapCallback) => {
+            let options = {
+                //host: triple.address,
+                //path: "/api/kademlia/nodes/" + triple.id,
+                uri: "http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + triple.id,
+                headers: {
+                    "node_id": id,
+                    "node_port": port,
+                    "node_address": ip.address(),
+                    "id": Math.random()*Math.pow(2,B) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+                },
+                method: "GET"
+            };
+            winston.debug("Calling FIND_NODE on " + triple + "...")
+            request(options, (err, res, body) => {
+                if(!err && res.statusCode === 200) {
+                    let results = JSON.parse(body);
+                    winston.debug("FIND_NODE on " + triple + " returned <" + results + ">");
+                    
+                    // Update closest node
+                    results = results.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))) // Change this to (our own) id?
+                    // The closest node is now in the front.
+
+                    let closestFromCurrentRequest = results[0];
+                    if (closestFromCurrentRequest && closestFromCurrentRequest.id !== id && distance(reqID, closestFromCurrentRequest.id) < distance(reqID, closestNode.id)) { // Here we should NOT include ourselves.
+                        // We have found a new closer node!
+                        closestNode = closestFromCurrentRequest;
+                        closestNodeChanged = true;
+                    } 
+
+                    mapCallback(err, results);
+                } else {
+
+                    // TODO: Remove this node from the shortlist.
+
+                    // Callback with empty array.
+                    mapCallback(err, []);
+                }
+            })
+        },
+        (err, results) => {
+            // When all calls are finished (basically, this version waits)
+            allResults = allResults.concat.apply([],results); //Flatten the array of arrays
+            winston.debug("Node lookup results: <" + allResults + ">");
+
+            // Add the results from this iteration to the shortlist.
+            shortlist = shortlist.concat(allResults);
+
+            // Sort the updated shortlist
+            shortlist = shortlist.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))) // Change this to (our own) id?
+
+            callback()
         })
-    },
-    (err, results) => {
-        // When all calls are finished (basically, this version waits)
-        allResults.concat.apply([],results); //Flatten the array of arrays
-        winston.debug("Node lookup results: <" + allResults + ">");
-        let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
-    })
+    }
+
+
+    function nodeLookupIteration(triplesToRequest) {
+        // Reset closest node flag.
+        closestNodeChanged = false;
+
+        // Make call (with alpha nodes)
+        makeFindNodeCalls(triplesToRequest, () => {
+            
+            if (!closestNodeChanged || shortlist.length === k) {
+                // We have not seen something closer, or we have k active contacts! Start final process.
+
+                // TODO: Not sure what to do here.
+                finalCallback(shortlist);
+
+            } else {
+                // We have discovered a new closest node. Continue the process.
+
+                // Select alpha new from the shortlist
+                let newNodesToCall = [];
+                for(let i = 0; i < shortlist.length; i++) {
+                    let currentNode = shortlist[i];
+
+                    // Check if already have contacted this node before.
+                    if (nodesContacted.map(JSON.stringify).includes(JSON.stringify(currentNode))   /*nodesContacted.contains(currentNode)*/) {
+                        continue;
+                    }
+
+                    newNodesToCall.push(currentNode);
+
+                    // Stop iteration if we have alpha nodes
+                    if (newNodesToCall.length === alpha) {
+                        break;
+                    }
+                }
+
+                // Make new iteration.
+                nodeLookupIteration(newNodesToCall);
+            }
+        })
+    }
+
+    // Start the first iteration by calling the whole shortlist (of length alpha)
+    nodeLookupIteration(shortlist)
+
+    // ---------
+    // Perform alpha async FIND_NODE calls
+
+    // let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
+    
     // Aggregate k closest results (sort results by distance and take the first k)
     // Perform async FIND_NODE on alpha closest of the k
     // Continue until nothing new is established
-    return closestNode;
 }
 
 function getNClosest(reqID, n) {

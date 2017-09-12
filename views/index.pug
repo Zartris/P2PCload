@@ -23,7 +23,7 @@ html
                                     td=index
                                     each tr in bucket
                                         td
-                                            a(href= "http://" + tr.ip + ":" + tr.port + "/api/kademlia") #{tr}
+                                            a(href= "http://" + tr.ip + ":" + tr.port + "/api/kademlia") #{"<"+ tr.ip + ", " + tr.port + ", " + tr.id + ">"}
                                     else
                                         td Empty Bucket
                             else
