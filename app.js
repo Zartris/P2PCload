@@ -34,16 +34,17 @@ class Bucket {
     }
 
     contains(triple) {
-        winston.debug(this.triples.map(JSON.stringify) + "; " + JSON.stringify(triple));
-        winston.debug(this.triples.map(JSON.stringify).includes(JSON.stringify(triple)));
+        winston.silly(this.triples.map(JSON.stringify) + "; " + JSON.stringify(triple));
+        winston.silly(this.triples.map(JSON.stringify).includes(JSON.stringify(triple)));
         return this.triples.map(JSON.stringify).includes(JSON.stringify(triple))
     }
 
     put(triple) {
-        if(!this.contains(triple) && this.triples.length < k) {
-            this.triples.push(triple);
-        }
-        else if(!this.contains(triple)) {
+        if(!this.contains(triple)) {
+            if(this.triples.length < k) {
+                this.triples.push(triple);
+            }
+            else {
             leastRecentTriple = this.triples[0];
             let options = {
                 host: leastRecentTriple.address,
@@ -59,11 +60,14 @@ class Bucket {
                     that.triples.push(triple);
                 }
             });
+            }   
         }
         else {
+            if(!this.triples[this.triples.length-1].id === triple.id) {
             let index = this.triples.map(JSON.stringify).indexOf(JSON.stringify(triple));
             this.triples.splice(index);
             this.triples.push(triple);
+            }
         }
     }
 
@@ -72,7 +76,7 @@ class Bucket {
 app.set("view engine", "pug");
 app.use(bodyParser.urlencoded({extended: true}));
 app.use("/static", express.static("/public"));
-const port = process.argv[2] ? parseInt(process.argv[2]) : 3000;
+const port = process.argv[2] ? parseInt(process.argv[2]) : 3003;
 const alpha = process.argv[3] ? parseInt(process.argv[3]) : 3;
 const B = process.argv[4] ? parseInt(process.argv[4]) : 8;
 const k = process.argv[5] ? parseInt(process.argv[5]) : 10;
@@ -161,7 +165,7 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
     
     const randID = req.get("id");
     let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
-    putTripleInBucket(triple);
+    if(triple.id != undefined) putTripleInBucket(triple);
 
     // Don't include the requester node in the 'closest' array.
     var newClosest = closest.filter( (trpl) => {
@@ -172,7 +176,7 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
     res.setHeader("id", randID);
     res.statusCode = 200;
     res.send(JSON.stringify(newClosest));
-    winston.info("FIND_NODE(" + reqID + ") from " + triple + " returned " + (closest ? closest : "nothing!"))
+    winston.info("FIND_NODE(" + reqID + ") from " + triple + " returned " + (closest.map((x) => x.id) ? closest : "nothing!"))
 })
 
 /**
@@ -210,9 +214,10 @@ app.listen(port, () => {
  * @param {*} id 
  */
 function nodeLookup(reqID, finalCallback) {
-    var shortlist = getNClosest(reqID, alpha);
+    var shortlist = getNClosest(reqID, k).sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))); // I figure sorting this list by distance makes sense given the circumstances
+    var remainder = shortlist.splice(alpha, k)
     var nodesContacted = [];
-    var closestNode = shortlist[0]; // Is this correct?
+    var closestNode = shortlist[0]; // This is now technically correct
     var closestNodeChanged = false;
 
     // Closure for making the FIND_NODE calls.
@@ -221,6 +226,7 @@ function nodeLookup(reqID, finalCallback) {
 
         // Add the contacted nodes to the array.
         nodesContacted.concat(triples);
+        remainder.filter((x) => triples.map(JSON.stringify).indexOf(JSON.stringify(x)) === -1)
 
         async.map(triples, (triple, mapCallback) => {
             let options = {
@@ -242,20 +248,18 @@ function nodeLookup(reqID, finalCallback) {
                     winston.debug("FIND_NODE on " + triple + " returned <" + results + ">");
                     
                     // Update closest node
-                    results = results.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))) // Change this to (our own) id?
+                    results = results.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))).filter((x) => x.id != id) //Might as well remove any instance of ourselves
                     // The closest node is now in the front.
 
                     let closestFromCurrentRequest = results[0];
-                    if (closestFromCurrentRequest && closestFromCurrentRequest.id !== id && distance(reqID, closestFromCurrentRequest.id) < distance(reqID, closestNode.id)) { // Here we should NOT include ourselves.
+                    if (closestFromCurrentRequest && distance(reqID, closestFromCurrentRequest.id) < distance(reqID, closestNode.id)) {
                         // We have found a new closer node!
-                        closestNode = closestFromCurrentRequest;
+                        closestNode = closestFromCurrentRequest; // Will this bring concurrency issues? I understand that Node.js is single-threaded, but this is async after all
                         closestNodeChanged = true;
                     } 
 
                     mapCallback(err, results);
                 } else {
-
-                    // TODO: Remove this node from the shortlist.
 
                     // Callback with empty array.
                     mapCallback(err, []);
@@ -264,14 +268,14 @@ function nodeLookup(reqID, finalCallback) {
         },
         (err, results) => {
             // When all calls are finished (basically, this version waits)
-            allResults = allResults.concat.apply([],results); //Flatten the array of arrays
-            winston.debug("Node lookup results: <" + allResults + ">");
+            allResults = allResults.concat.apply([],results); //Flatten the array of arrays (the set technique doesn't seem very eficient, but it works
 
             // Add the results from this iteration to the shortlist.
             shortlist = shortlist.concat(allResults);
+            winston.debug("Node lookup results: <" + shortlist.map((x)=>x.id) + ">")
 
             // Sort the updated shortlist
-            shortlist = shortlist.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))) // Change this to (our own) id?
+            shortlist = shortlist.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))).filter( (el, i, arr) => arr.map(JSON.stringify).indexOf(JSON.stringify(el)) === i);// Change this to (our own) id? [Nah, our id isn't important for this. We want it relative to the call]
 
             callback()
         })
@@ -285,12 +289,17 @@ function nodeLookup(reqID, finalCallback) {
         // Make call (with alpha nodes)
         makeFindNodeCalls(triplesToRequest, () => {
             
-            if (!closestNodeChanged || shortlist.length === k) {
+            if (shortlist.length === k) {
                 // We have not seen something closer, or we have k active contacts! Start final process.
 
                 // TODO: Not sure what to do here.
                 finalCallback(shortlist);
-
+            } else if(!closestNodeChanged) {
+                if(remainder.length === 0) finalCallback(shortlist)
+                else makeFindNodeCalls(remainder, () => {
+                    winston.debug("Remaining nodes called: " + remainder.map((x) => x.id))
+                    finalCallback(shortlist)
+                })
             } else {
                 // We have discovered a new closest node. Continue the process.
 
@@ -331,19 +340,27 @@ function nodeLookup(reqID, finalCallback) {
     // Continue until nothing new is established
 }
 
+/**
+ * I actually hate this implementation, but I'm tired, and I found a bug
+ * @param {*} reqID 
+ * @param {*} n 
+ */
 function getNClosest(reqID, n) {
     let dist = distance(id, reqID);
     let bucketNumber = dist === 0 ? 0 : Math.floor(Math.log2(dist));
     let closest = [];
-    for(let i = bucketNumber; i <= B; i++) {
-        if(closest.length < n) {
-            if(buckets[i] instanceof Bucket) buckets[i].triples.forEach(triple => {
-                if(closest.length < n) {
-                    closest.push(triple);
-                }
-            })
-        }
-        else break;
+    if(buckets[bucketNumber] instanceof Bucket) {
+        closest = closest.concat(buckets[bucketNumber].triples)
+    }
+    let top = bucketNumber - 1
+    let bot = bucketNumber + 1
+    while(closest.length < n && (bot >= 0 || top < B)) {
+        if(buckets[bot] instanceof Bucket && bot >= 0)
+        closest = closest.concat(buckets[bot].triples)
+        if(buckets[top] instanceof Bucket && top < B)
+        closest = closest.concat(buckets[top].triples)
+        bot--
+        top++
     }
     return closest;
 }
@@ -367,14 +384,15 @@ function putTripleInBucket(triple) {
         winston.debug("Attempted to add self to bucket");
         return;
     }
-    winston.debug("Adding " + triple + " to buckets")
     const dist = distance(id, triple.id);
     const i = dist === 0 ? 0 : Math.floor(Math.log2(dist));
 
     if (buckets[i] instanceof Bucket) {
         buckets[i].put(triple);
+        winston.debug("Added " + triple.id + " to bucket " + i + " (" + buckets[i].toString() + ")")
     } else {
         buckets[i] = new Bucket(triple, k);
+        winston.debug("New bucket created (" + buckets[i].toString() + ")")
     }
 }
 
