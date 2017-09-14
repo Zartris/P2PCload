@@ -77,13 +77,22 @@ app.set("view engine", "pug");
 app.use(bodyParser.urlencoded({extended: true}));
 app.use("/static", express.static("/public"));
 const port = process.argv[2] ? parseInt(process.argv[2]) : 3003;
-const alpha = process.argv[3] ? parseInt(process.argv[3]) : 3;
-const B = process.argv[4] ? parseInt(process.argv[4]) : 8;
-const k = process.argv[5] ? parseInt(process.argv[5]) : 10;
+const connectToIp = process.argv[3];
+const connectToPort = process.argv[4];
+const connectToId = process.argv[5];
+const alpha = process.argv[6] ? parseInt(process.argv[3]) : 3;
+const B = process.argv[7] ? parseInt(process.argv[4]) : 8;
+const k = process.argv[8] ? parseInt(process.argv[5]) : 10;
+
 var id = undefined;
 generateId();
 var buckets = [];
 
+// Try to join the network if we have the join-triple.
+if ((connectToIp && connectToId && connectToPort) !== undefined) {
+    let joinOnTriple = new Triple(connectToIp, connectToPort, connectToId)
+    joinNetwork(joinOnTriple, () => { })
+}
 /**
  * Joins the kademlia network.
  */
@@ -95,23 +104,14 @@ app.post('/api/kademlia/join', (req, res, next) => {
             = new Triple(req.header("node_address"), 
                     req.header("node_port"), 
                     req.header("node_id"));
-    }
-    else {
+    } else {
     joinTriple 
         = new Triple(req.body.node_address, 
                     req.body.node_port, 
                     req.body.node_id);
     }
-    putTripleInBucket(joinTriple);
-    winston.info("Join " + joinTriple.toString());
-    // iterateFindNode on this
 
-    nodeLookup(id, (resultTriples) => {
-        // Put all the new triples into buckets.
-        resultTriples.forEach((triple) => {
-            putTripleInBucket(triple)
-        })
-
+    joinNetwork(joinTriple, () => {
         res.statusCode = 200;
         res.render("joined", {
             nodeid: id, 
@@ -119,7 +119,7 @@ app.post('/api/kademlia/join', (req, res, next) => {
             nodeaddress: ip.address(), 
             nodeport: port});
         res.send();
-    })    
+    })
 })
 
 /**
@@ -208,6 +208,26 @@ app.post('/api/kademlia/ping', (req,res) => {
 app.listen(port, () => {
     console.log('Kademlia node listening on port ' + port + "!")
 })
+
+/**
+ * Joins the network with the supplied triple. Calls the callback when done.
+ * @param {*} joinTriple 
+ * @param {*} callback 
+ */
+function joinNetwork(joinTriple, callback) {
+    putTripleInBucket(joinTriple);
+    winston.info("Join " + joinTriple.toString());
+    // iterateFindNode on this
+
+    nodeLookup(id, (resultTriples) => {
+        // Put all the new triples into buckets.
+        resultTriples.forEach((triple) => {
+            putTripleInBucket(triple)
+        })
+
+        callback();
+    })
+}
 
 /**
  * Technically iterativeNodeLookup
