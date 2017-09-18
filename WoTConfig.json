@@ -1,0 +1,14 @@
+{
+    "actuators": [
+        {
+            "pin": 1,
+            "description": "This is just some sort of descriptor"
+        }
+    ],
+    "sensors": [
+        {
+            "pin": 5,
+            "description": "This is another random description"
+        }
+    ]
+}
