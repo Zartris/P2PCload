@@ -6,18 +6,41 @@ const onoff = require("onoff")
 const apidoc = require("apidoc")
 const fs = require("fs")
 
+// DHT sensor setup
+const sensorLib = require('node-dht-sensor');
+sensorLib.initialize(22, 18);
+
+
 class Sensor {
     constructor(pin, desc) {
-        this.sensor = Gpio(pin, "in")
+
+        this.sensor = Gpio(pin, "in", "both")
         this.pin = pin
         this.description = desc;
         this.latestValue = 0;
+	var that = this;	
+
+	// Temp setup
+	if (this.description === "HM") {
+		winston.debug("Setting up temp");
+		var interval = setInterval(function() {
+			var readOut = sensorLib.read();
+			// Only read temp.
+			that.latestValue = readOut.temperature;
+			winston.debug("Updated temp sensor: " + that.latestValue);
+		}, 2000);
+	} else {
+
+	
         this.sensor.watch((err, value) => {
+		winston.debug("Read value for sensor " + this.description + " __ " + value)
             if(err){
                 winston.error("Sensor error " + err)
             }
             else this.latestValue = value
         })
+	}
+	
     }
 
     deregister() {
@@ -31,7 +54,6 @@ class Sensor {
 
 class Actuator {
     constructor(pin, desc) {
-winston.debug("in constructor");
         this.actuator = new Gpio(pin, "out")
         this.pin = pin
         this.description = desc;
@@ -66,7 +88,7 @@ const config = require("./WoTConfig.json")
 config.actuators.forEach((x) => actuators.push(new Actuator(x.pin, x.description)))
 config.sensors.forEach((x) => sensors.push(new Sensor(x.pin, x.description)))
 
-winston.debug(actuators);
+winston.debug(sensors);
 
 app.set("view engine", "pug");
 app.use(bodyParser.urlencoded({extended: true}));
@@ -80,6 +102,9 @@ app.listen(port, () => {
 app.get("/WoT/sensors/:id", (req, res) => {
     let reqID = (req.params["id"])
     let reqSensor = sensors[reqID]
+
+	winston.debug(reqSensor);
+
     if(req.header("Accept") === "application/json") {
         res.send(JSON.stringify(reqSensor))
     }

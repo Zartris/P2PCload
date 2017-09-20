@@ -2,13 +2,17 @@
     "actuators": [
         {
             "pin": 14,
-            "description": "This is an LED! On pin 4"
+            "description": "This is a LED!"
         }
     ],
     "sensors": [
         {
-            "pin": 4,
-            "description": "YOOOOO This is another random description"
+            "pin": 15,
+            "description": "Væksthuset!"
+        },
+	{
+            "pin": 18,
+            "description": "HM"
         }
     ]
 }
