@@ -12,7 +12,7 @@ class Sensor {
         this.pin = pin
         this.description = desc;
         this.latestValue = 0;
-        sensor.watch((err, value) => {
+        this.sensor.watch((err, value) => {
             if(err){
                 winston.error("Sensor error " + err)
             }
@@ -41,11 +41,11 @@ class Actuator {
     }
 
     writeTo(value, callback) {
-        actuator.write(value, callback)
+        this.actuator.write(value, callback)
     }
 
     toString() {
-        return actuator.toString()
+        return this.actuator.toString()
     }
 }
 
