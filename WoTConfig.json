@@ -1,14 +1,14 @@
 {
     "actuators": [
         {
-            "pin": 1,
-            "description": "This is just some sort of descriptor"
+            "pin": 14,
+            "description": "This is an LED! On pin 4"
         }
     ],
     "sensors": [
         {
-            "pin": 5,
-            "description": "This is another random description"
+            "pin": 4,
+            "description": "YOOOOO This is another random description"
         }
     ]
 }

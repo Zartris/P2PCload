@@ -21,7 +21,7 @@ class Sensor {
     }
 
     deregister() {
-        this.sensor.deregister()
+        this.sensor.unexport()
     }
 
     toString() {
@@ -31,13 +31,14 @@ class Sensor {
 
 class Actuator {
     constructor(pin, desc) {
+winston.debug("in constructor");
         this.actuator = new Gpio(pin, "out")
         this.pin = pin
         this.description = desc;
     }
 
     deregister() {
-        this.actuator.deregister()
+        this.actuator.unexport()
     }
 
     writeTo(value, callback) {
@@ -64,6 +65,8 @@ winston.debug("Logging in debug mode");
 const config = require("./WoTConfig.json")
 config.actuators.forEach((x) => actuators.push(new Actuator(x.pin, x.description)))
 config.sensors.forEach((x) => sensors.push(new Sensor(x.pin, x.description)))
+
+winston.debug(actuators);
 
 app.set("view engine", "pug");
 app.use(bodyParser.urlencoded({extended: true}));
@@ -105,12 +108,26 @@ app.post("/WoT/actuators/:id/write", (req, res) => {
     let reqID = (req.params["id"])
     let reqActuator = actuators[reqID]
     let data = undefined
-    if(req.body.data === undefined) data = req.header("writeData")
-    else data = req.body.data
-    reqActuator.writeTo(data, () => {
+    if(req.body === undefined) {
+	data = req.header("writeData")
+winston.debug("Header if:" + data)
+    } else {
+winston.debug(req.body);
+	 data = req.body["writeData"];	
+	winston.debug("Body if:" + data)
+    }
+    winston.debug(reqActuator.actuator.readSync());
+//	reqActuator.actuator.writeSync(1);
+// winston.debug(reqActuator.actuator.readSync());
+
+    reqActuator.writeTo(parseInt(data), () => {
+	
+    winston.debug(reqActuator.actuator.readSync());
+
         winston.info("Data written to actuator number " + reqID + ": " + data)
+	res.sendStatus(200);
     })
-    res.sendStatus(200)
+
 })
 
 app.get("/WoT", (req, res) => {
