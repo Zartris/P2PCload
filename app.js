@@ -5,6 +5,7 @@ const winston = require("winston");
 const async = require("async");
 const request = require("request");
 const bodyParser = require("body-parser");
+var storage = require('node-persist');
 
 const app = express();
 
@@ -93,6 +94,10 @@ if ((connectToIp && connectToId && connectToPort) !== undefined) {
     let joinOnTriple = new Triple(connectToIp, connectToPort, connectToId)
     joinNetwork(joinOnTriple, () => { })
 }
+
+// Setup storage.
+storage.init();
+
 /**
  * Joins the kademlia network.
  */
@@ -172,10 +177,16 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
         return trpl.id !== triple.id
     })
 
+    // Create response body.
+    const resBody = {
+        "type": "nodes",
+        "data": newClosest
+    }
+
     res.contentType("application/json");
     res.setHeader("id", randID);
     res.statusCode = 200;
-    res.send(JSON.stringify(newClosest));
+    res.send(JSON.stringify(resBody));
     winston.info("FIND_NODE(" + reqID + ") from " + triple + " returned " + (closest.map((x) => x.id) ? closest : "nothing!"))
 })
 
@@ -205,6 +216,132 @@ app.post('/api/kademlia/ping', (req,res) => {
     winston.info("Ping recieved from " + req.hostname + ":" + req.port);
 })
 
+
+app.post('/api/kademlia/store/:key', (req,res) => {
+    // Get the provided key.
+    const key = req.params["key"];
+
+    // There should be a body (the data).
+    if (req.body === undefined) {
+        res.sendStatus(400).send("Body needed");
+        return;
+    }
+
+    // Store the body.
+    storage.setItemSync(key, req.body);
+
+    res.sendStatus(200).send("Data stored succesfully with key " + key);
+    winston.info("STORE operation recieved from " + req.hostname + ":" + req.port + " for key " + key);
+})
+
+app.post('/api/kademlia/iterative-store/:key', (req,res) => {
+    // Get the provided key.
+    const key = req.params["key"];
+
+    // There should be a body (the data).
+    if (req.body === undefined) {
+        res.sendStatus(400).send("Body needed");
+        return;
+    }
+
+    // Store the body.
+    storage.setItemSync(key, req.body);
+
+    var that = this;
+    nodeLookup(id, false, (resultTriples) => {
+
+        // Unwrap triples from structure
+        resultTriples = resultTriples.data;
+
+        // Put all the new triples into buckets.
+        resultTriples.forEach((triple) => {
+            putTripleInBucket(triple)
+        })
+
+        // Send STORE to each of the triples.
+        async.map(resultTriples, (triple, mapCallback) => {
+            let options = {
+                host: triple.address,
+                port: triple.port,
+                path: "/api/kademlia/store/" + that.key,
+                method: "POST",
+                body: req.body
+            };
+            
+            request(options, (err,res,body) => {
+                winston.debug("STORE to " + triple.id + " returned response " + res.statusCode);
+                mapCallback(err);
+            });
+            
+        }, (err, results) => {
+            // All STORE calls finised
+            res.sendStatus(200).send("Data stored (iteravely) succesfully with key " + key);
+            winston.info("Iterative store completed succesfully");
+        });
+    })
+})
+
+app.get('/api/kademlia/value/:id', (req,res) => {
+    const id = req.params["id"];
+
+    // Check if we have the data.
+    const data = storage.getItemSync(id);
+
+    var resBody;
+    if (data === undefined) {
+        // We doesn't have the value - return the k closest nodes.
+        const closest = getNClosest(id, k);
+
+        // Create data structure for NODES RETURN.
+        resBody = generateDataStructure(true, closest)
+    } else {
+        // We have the value here - return it.
+
+        // Create data structure for VALUE RETURN.
+        resBody = generateDataStructure(false, data)
+    }
+    res.sendStatus(200).send(JSON.stringify(resBody));            
+})
+
+app.get('/api/kademlia/iterative-value/:id', (req,res) => {
+    const id = req.params["id"];
+
+    // Check if we have the data.
+    const data = storage.getItemSync(id);
+
+    nodeLookup(id, true, (result) => {
+
+        // If we found the value, store the value at the closest node.
+        if (result.type === "value") {
+            const triples = result.data;
+
+            triples = getNClosest(id, k);
+
+            if (triples.length > 0 ) {
+                const closest = triples[0];
+
+                // Send STORE to the closest node.
+                let options = {
+                    host: closest.address,
+                    port: closest.port,
+                    path: "/api/kademlia/store/" + id,
+                    method: "POST",
+                    body: result.data
+                };
+                
+                request(options, (err,res,body) => {
+                    winston.debug("STORE to" + triple.id + " returned response " + res.statusCode);
+
+                    // Send the value back to the requester.
+                    res.sendStatus(200).send(JSON.stringify(result));
+                });
+            }
+        } else {
+            res.sendStatus(200).send(JSON.stringify(result));
+        }
+    });               
+})
+
 app.listen(port, () => {
     console.log('Kademlia node listening on port ' + port + "!")
 })
@@ -219,7 +356,10 @@ function joinNetwork(joinTriple, callback) {
     winston.info("Join " + joinTriple.toString());
     // iterateFindNode on this
 
-    nodeLookup(id, (resultTriples) => {
+    nodeLookup(id, false, (resultTriples) => {
+        // Unwrap triples.
+        resultTriples = resultTriples.data;
+
         // Put all the new triples into buckets.
         resultTriples.forEach((triple) => {
             putTripleInBucket(triple)
@@ -233,14 +373,14 @@ function joinNetwork(joinTriple, callback) {
  * Technically iterativeNodeLookup
  * @param {*} id 
  */
-function nodeLookup(reqID, finalCallback) {
+function nodeLookup(reqID, isValueLookup, finalCallback) {
     var shortlist = getNClosest(reqID, k).sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))); // I figure sorting this list by distance makes sense given the circumstances
     var remainder = shortlist.splice(alpha, k)
     var nodesContacted = [];
     var closestNode = shortlist[0]; // This is now technically correct
     var closestNodeChanged = false;
 
-    // Closure for making the FIND_NODE calls.
+    // Closure for making the FIND_NODE/FIND_VALUE calls.
     function makeFindNodeCalls(triples, callback) {
         let allResults = []; //Put actual results here (remember to exclude duplicates)
 
@@ -250,9 +390,7 @@ function nodeLookup(reqID, finalCallback) {
 
         async.map(triples, (triple, mapCallback) => {
             let options = {
-                //host: triple.address,
-                //path: "/api/kademlia/nodes/" + triple.id,
-                uri: "http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + triple.id,
+                uri: isValueLookup ? "http://" + triple.ip + ":" + triple.port + "/api/kademlia/value/" + reqID : "http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + reqID,
                 headers: {
                     "node_id": id,
                     "node_port": port,
@@ -261,12 +399,24 @@ function nodeLookup(reqID, finalCallback) {
                 },
                 method: "GET"
             };
-            winston.debug("Calling FIND_NODE on " + triple + "...")
+            winston.debug("Calling " + isValueLookup ? "FIND_VALUE" : "FIND_NODE" + " on "  + triple + "...")
             request(options, (err, res, body) => {
                 if(!err && res.statusCode === 200) {
                     let results = JSON.parse(body);
-                    winston.debug("FIND_NODE on " + triple + " returned <" + results + ">");
+                    winston.debug(isValueLookup ? "FIND_VALUE" : "FIND_NODE" + triple + " returned <" + results + ">");
                     
+                    // If this is a value lookup, check for data.
+                    if (results.type === "value") {
+                        // WE HAVE THE DATA!!
+
+                        // Return the data
+                        finalCallback(results)
+                        return;
+                    }
+
+                    // This is nodes - extract them from the data structure.
+                    results = results.data;
+
                     // Update closest node
                     results = results.sort((x, y) => (distance(reqID, x.id) - distance(reqID, y.id))).filter((x) => x.id != id) //Might as well remove any instance of ourselves
                     // The closest node is now in the front.
@@ -312,13 +462,16 @@ function nodeLookup(reqID, finalCallback) {
             if (shortlist.length === k) {
                 // We have not seen something closer, or we have k active contacts! Start final process.
 
-                // TODO: Not sure what to do here.
-                finalCallback(shortlist);
+                // Create data structure.
+                const struct = generateDataStructure(true, shortlist)
+                finalCallback(struct);
             } else if(!closestNodeChanged) {
-                if(remainder.length === 0) finalCallback(shortlist)
-                else makeFindNodeCalls(remainder, () => {
+                if(remainder.length === 0) 
+                    finalCallback(generateDataStructure(true, shortlist))
+                else 
+                makeFindNodeCalls(remainder, () => {
                     winston.debug("Remaining nodes called: " + remainder.map((x) => x.id))
-                    finalCallback(shortlist)
+                    finalCallback(generateDataStructure(true, shortlist))
                 })
             } else {
                 // We have discovered a new closest node. Continue the process.
@@ -434,4 +587,11 @@ function hex2bin(hex){
  */
 function bin2Dec(bin) {
     return parseInt(bin,2).toString(10)
+}
+
+function generateDataStructure(isNodes, data) {
+    return {
+        type: isNodes ? "nodes" : "value",
+        data: data
+    }
 }
