@@ -1,0 +1,49 @@
+doctype html
+html
+    head
+        title= "WoT"
+        link(rel="stylesheet", href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css", integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M", crossorigin="anonymous")
+
+    body
+        div.container
+            h1 WoT node!
+        div.container
+            div.row
+                div.col-6
+                    div.panel
+                        h2.panel-heading Sensors:
+                        table.table
+                            tr
+                                th Sensor
+                                th Description
+                                th Link
+                            each sens, index in rSensors
+                                tr
+                                    td=index
+                                    td=sens.description
+                                    td 
+                                        a(href= "/WoT/sensors/" + index) Link!
+                            else
+                                tr 
+                                    td No sensor
+                                    td
+                                    td
+                div.col-6
+                    div.panel
+                        h2.panel-heading Actuators:
+                        table.table
+                            tr
+                                th Actuator
+                                th Description
+                                th Link
+                            each act, index in rActuators
+                                tr
+                                    td=index
+                                    td=act.description
+                                    td 
+                                        a(href= "/WoT/actuators/" + index) Link!
+                            else
+                                tr 
+                                    td No sensor
+                                    td
+                                    td

@@ -1,0 +1,15 @@
+doctype html
+html
+    head
+        title= "WoT"
+        link(rel="stylesheet", href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css", integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M", crossorigin="anonymous")
+
+    body
+        div.container
+            h1 WoT actuator!
+            h2=rActuator.description
+                h3.panel-heading Write to actuator:
+                    form(method="POST" action="/WoT/actuators/" + id + "/write")
+                        div.form-group 
+                            input.form-control(type="number", placeholder="0" name="writeData")
+                        button.btn.btn-primary(type="submit") Write data!

@@ -1,0 +1,18 @@
+{
+    "actuators": [
+        {
+            "pin": 14,
+            "description": "This is a LED!"
+        }
+    ],
+    "sensors": [
+        {
+            "pin": 15,
+            "description": "Væksthuset!"
+        },
+	{
+            "pin": 18,
+            "description": "HM"
+        }
+    ]
+}

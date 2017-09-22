@@ -7,5 +7,17 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "apidoc": "^0.17.6",
+    "body-parser": "^1.18.1",
+    "express": "^4.15.4",
+    "gpio": "^0.2.7",
+    "jade": "^1.11.0",
+    "node-dht-sensor": "0.0.32",
+    "onoff": "^1.1.7",
+    "pug": "^2.0.0-rc.4",
+    "request": "^2.82.0",
+    "winston": "^2.3.1"
+  }
 }

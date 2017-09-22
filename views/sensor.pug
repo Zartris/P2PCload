@@ -1,0 +1,11 @@
+doctype html
+html
+    head
+        title= "WoT"
+        link(rel="stylesheet", href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css", integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M", crossorigin="anonymous")
+
+    body
+        div.container
+            h1 WoT sensor!
+            h2=rSensor.description
+            p Latest measured value: #{rSensor.latestValue}
