@@ -10,7 +10,7 @@ var storage = require('node-persist');
 const app = express();
 
 winston.level = "debug";
-winston.debug("Logging in debug mode");
+winston.debug("Logging in " + winston.level + " mode");
 
 class Triple {
     constructor(ip, port, id) {
@@ -48,15 +48,14 @@ class Bucket {
             else {
             leastRecentTriple = this.triples[0];
             let options = {
-                host: leastRecentTriple.address,
-                port: leastRecentTriple.port,
-                path: "/api/kademlia/ping",
+                uri: "http://" + leastRecentTriple.ip + ":" + leastRecentTriple.port + "/api/kademlia/ping",
                 method: "POST"
             };
             var that = this; //WHAT?!
             request(options, (err,res,body) => {
                 winston.debug("PING of" + leastRecentTriple.id + " returned response " + res.statusCode);
                 if(err || res.statusCode != 200) {
+                    winston.info("Dead triple removed: " + leastRecentTriple)
                     that.triples.splice(0);
                     that.triples.push(triple);
                 }
@@ -75,8 +74,8 @@ class Bucket {
 }
 
 app.set("view engine", "pug");
-app.use(bodyParser.urlencoded({extended: true}));
-app.use("/static", express.static("/public"));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
 const port = process.argv[2] ? parseInt(process.argv[2]) : 3003;
 const connectToIp = process.argv[3];
 const connectToPort = process.argv[4];
@@ -97,33 +96,35 @@ if ((connectToIp && connectToId && connectToPort) !== undefined) {
 
 // Setup storage.
 storage.init();
+//storage.setItemSync("42", "Test item")
+
+//This process ensures that the persistent storage is not, in fact, persistent
+//TODO: Determine whether storage should really be persistent, as it could make the network kinda volatile
+process.on('SIGINT', () => {
+    storage.clearSync();
+    winston.info("Persistent storage wiped") 
+    process.exit();
+  });
+
 
 /**
  * Joins the kademlia network.
  */
 app.post('/api/kademlia/join', (req, res, next) => {
     // Put known in bucket
-    var joinTriple
+    var joinTriple;
     if (req.body.node_id === undefined){ // A disturbingly slapdash way of deciding whether the request is coming from a browser
         joinTriple 
-            = new Triple(req.header("node_address"), 
-                    req.header("node_port"), 
-                    req.header("node_id"));
-    } else {
-    joinTriple 
-        = new Triple(req.body.node_address, 
-                    req.body.node_port, 
-                    req.body.node_id);
+            = new Triple(req.header("node_address"), req.header("node_port"), req.header("node_id"));
+    }
+    else {
+        joinTriple
+            = new Triple(req.body.node_address, req.body.node_port, req.body.node_id)
     }
 
     joinNetwork(joinTriple, () => {
         res.statusCode = 200;
-        res.render("joined", {
-            nodeid: id, 
-            bucketlist: buckets, 
-            nodeaddress: ip.address(), 
-            nodeport: port});
-        res.send();
+        res.redirect("/api/kademlia")
     })
 })
 
@@ -131,11 +132,16 @@ app.post('/api/kademlia/join', (req, res, next) => {
  * Overview page
  */
 app.get('/api/kademlia', (req, res) =>{
+        let keys = storage.keys();
         res.render("index", {
         nodeid: id, 
         bucketlist: buckets, 
         nodeaddress: ip.address(), 
-        nodeport: port});
+        nodeport: port,
+        storage: storage.values().map((x,i) => {
+            return [keys[i], x] // Zipping the two arrays for the UI
+        })} // Note: Unbouned result set. Change to avoid explosions
+    );
     winston.info("Node overview accessed by " + req.hostname);
 })
 
@@ -144,23 +150,33 @@ app.get('/api/kademlia', (req, res) =>{
  * @api {get} /api/kademlia/nodes/:id  Retrieves the k closest nodes to the specified ID.
  * @apiName FindNodes
  * @apiGroup Milestone1
- * @apiVersion 1.0.0
+ * @apiVersion 1.0.1
  * @apiDescription Corresponds to the Kademlia FIND_NODE as specified in the specification.
 
  * 
- * @apiHeader {String} node_address description
- * @apiHeader {String} node_port description
- * @apiHeader {String} node_id description
- * 
- * 
- * @apiHeaderExample {String} Request-Example (Headers):
-   { node_address: 192.168.0.102, node_port: 3000, node_id: 101 }
+ * @apiHeader {String} node_address The address for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_port The port for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_id The ID for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} id Random RPC ID
  * 
  * @apiParam  {String} id The ID of the node you want the k closest nodes to.
+ * 
+ * @apiHeaderExample {String} Request-Example (Headers):
+   { node_address: 192.168.0.102, node_port: 3000, node_id: 101, id: 123}
+ * 
  * @apiSuccess (200) {Triple[]} array the k closest nodes
  * 
  * @apiSuccessExample {Triple[]} Success-Response-Example:
-    [{ ip = "192.168.0.102", port = 3000, id = 101 }, { ip = "192.168.0.102", port = 3001, id = 155  }]
+    {
+    "type": "nodes",
+    "data": [
+        {
+            "ip": "192.168.0.114",
+            "port": "3004",
+            "id": "108"
+        }
+    ]
+}
  *
  */
 app.get('/api/kademlia/nodes/:id', (req, res) => {
@@ -168,8 +184,12 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
     winston.debug("Requested ID: " + reqID);
     var closest = getNClosest(reqID, k);
     
-    const randID = req.get("id");
-    let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
+    const randID = req.header("id");
+    if(randID === undefined) {
+        res.status(400).send("Random ID not defined")
+        return;
+    }
+    let triple = new Triple(req.header("node_address"), req.header("node_port"),req.header("node_id"));
     if(triple.id != undefined) putTripleInBucket(triple);
 
     // Don't include the requester node in the 'closest' array.
@@ -195,20 +215,24 @@ app.get('/api/kademlia/nodes/:id', (req, res) => {
  * @api {post} /api/kademlia/ping Pings the node.
  * @apiName Ping
  * @apiGroup Milestone1
- * @apiVersion 1.0.0
+ * @apiVersion 1.0.1
  * @apiDescription Corresponds to the Kademlia PING as specified in the specification. Returns a PONG (status 200). Puts the requester in this node's bucket.
  * 
- * @apiHeader {String} node_address description
- * @apiHeader {String} node_port description
- * @apiHeader {String} node_id description
+ * @apiHeader {String} node_address The address for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_port The port for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_id The ID for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} id Random RPC ID
  * 
  * 
  * @apiHeaderExample {String} Request-Example (Headers):
-   { node_address: 192.168.0.102, node_port: 3000, node_id: 101 }
+   { node_address: 192.168.0.102, node_port: 3000, node_id: 101, id: 123}
  * 
  */
 app.post('/api/kademlia/ping', (req,res) => {
     const randID = req.get("id");
+    if(randID === undefined) {
+        res.status(400).send("Random ID not defined")
+    }
     res.writeHead(200 , {"id": randID}); // Remember to return random ID
     let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
     putTripleInBucket(triple);
@@ -216,36 +240,69 @@ app.post('/api/kademlia/ping', (req,res) => {
     winston.info("Ping recieved from " + req.hostname + ":" + req.port);
 })
 
-
-app.post('/api/kademlia/store/:key', (req,res) => {
-    // Get the provided key.
-    const key = req.params["key"];
-
+/**
+ * 
+ * @api {post} /api/kademlia/storage
+ * @apiName STORE
+ * @apiGroup Milestone3
+ * @apiVersion 1.0.1
+ * @apiDescription Corresponds to the Kademlia STORE as specified in the specification. This version is not iterative.
+ * 
+ * @apiHeader {String} node_address The address for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_port The port for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_id The ID for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} id Random RPC ID
+ * @apiParam {String} key The key intended for storage
+ * @apiParam {String} data The data intended for storage
+ */
+// Should we perhaps just generate keys based on a hash of the data?
+app.post('/api/kademlia/storage', (req,res) => {
     // There should be a body (the data).
-    if (req.body === undefined) {
-        res.sendStatus(400).send("Body needed");
+    winston.debug(req.body)
+    if (req.body === undefined || req.body.key === undefined || req.body.data === undefined) {
+        res.status(400).send("Malformed request: " + req.body.key + "," + req.body.data);
         return;
     }
-
+    //Get the required key
+    const key = req.body.key
+    const data = req.body.data
+    let triple = new Triple(req.header("node_address"),req.header("node_port"),req.header("node_id"));
+    if(triple.id !== undefined) putTripleInBucket(triple)
     // Store the body.
-    storage.setItemSync(key, req.body);
+    storage.setItemSync(key, data);
 
-    res.sendStatus(200).send("Data stored succesfully with key " + key);
+    res.status(200).send("Data stored succesfully with key " + key);
     winston.info("STORE operation recieved from " + req.hostname + ":" + req.port + " for key " + key);
 })
 
-app.post('/api/kademlia/iterative-store/:key', (req,res) => {
-    // Get the provided key.
-    const key = req.params["key"];
+/**
+ * 
+ * @api {post} /api/kademlia/storage.iterative
+ * @apiName STORE
+ * @apiGroup Milestone3
+ * @apiVersion 1.0.1
+ * @apiDescription Corresponds to the Kademlia STORE as specified in the specification. This version is iterative, and makes STORE RPC's to the k nearest nodes.
+ * 
+ * @apiHeader {String} node_address The address for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_port The port for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} node_id The ID for the contacting node, should this be specified, the triple will be updated in the bucket list
+ * @apiHeader {String} id Random RPC ID
+ * @apiParam {String} key The key intended for storage
+ * @apiParam {String} data The data intended for storage
+ */
+app.post('/api/kademlia/storage-iterative/', (req,res) => {
 
     // There should be a body (the data).
-    if (req.body === undefined) {
-        res.sendStatus(400).send("Body needed");
+    if (req.body === undefined || req.body.key === undefined || req.body.data === undefined) {
+        res.status(400).send("Malformed request");
         return;
     }
+    //Get the provided key
+    const key = req.body.key
+    const data = req.body.data
 
     // Store the body.
-    storage.setItemSync(key, req.body);
+    storage.setItemSync(key, data);
 
     var that = this;
     nodeLookup(id, false, (resultTriples) => {
@@ -255,32 +312,77 @@ app.post('/api/kademlia/iterative-store/:key', (req,res) => {
 
         // Put all the new triples into buckets.
         resultTriples.forEach((triple) => {
-            putTripleInBucket(triple)
+            putTripleInBucket(triple) // I have a sneaking suspicion they'd all already be there
         })
 
         // Send STORE to each of the triples.
         async.map(resultTriples, (triple, mapCallback) => {
             let options = {
-                host: triple.address,
-                port: triple.port,
-                path: "/api/kademlia/store/" + that.key,
+                uri: "http://" + triple.ip + ":" + triple.port + "/api/kademlia/storage",
                 method: "POST",
-                body: req.body
+                headers: {
+                    "node_id": id,
+                    "node_port": port,
+                    "node_address": ip.address(),
+                    "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+                },
+                body: req.body,
+                json: true
             };
             
             request(options, (err,res,body) => {
-                winston.debug("STORE to " + triple.id + " returned response " + res.statusCode);
+                if(err) winston.error(err)
+                winston.debug("STORE to " + triple.id + " returned response " + res.status);
                 mapCallback(err);
             });
             
         }, (err, results) => {
             // All STORE calls finised
-            res.sendStatus(200).send("Data stored (iteravely) succesfully with key " + key);
+            res.status(200).send("Data stored (iteravely) succesfully with key " + key);
             winston.info("Iterative store completed succesfully");
         });
     })
 })
 
+/**
+ * 
+ * @api {get} /api/kademlia/value/:id Attempts to find the specified value locally 
+ * @apiName FIND_VALUE
+ * @apiGroup Milestone3
+ * @apiVersion 1.0.1
+ * @apiDescription Corresponds to the Kademlia FIND_NODE as specified in the specification, excluding the iteration.
+
+ * 
+ * @apiHeader {String} node_address description
+ * @apiHeader {String} node_port description
+ * @apiHeader {String} node_id description
+ * @apiHeader  {String} id Random RPC ID
+ * 
+ * @apiHeaderExample {String} Request-Example (Headers):
+   { node_address: 192.168.0.102, node_port: 3000, node_id: 101, id: 123}
+ * 
+ * @apiParam {String} id The key intended for search
+ * 
+ * @apiSuccess (200) {Triple[]} array the k closest nodes
+ * 
+ * @apiSuccessExample {Triple[]} Success-Response-Example:
+    {
+    "type": "nodes",
+    "data": [
+        {
+            "ip": "192.168.0.114",
+            "port": "3004",
+            "id": "108"
+        }
+    ]
+    }
+
+    @apiSuccessExample {Triple[]} Success-Response-Example:
+    {
+    "type": "value",
+    "data": "Hello"
+    }
+ */
 app.get('/api/kademlia/value/:id', (req,res) => {
     const id = req.params["id"];
 
@@ -289,7 +391,7 @@ app.get('/api/kademlia/value/:id', (req,res) => {
 
     var resBody;
     if (data === undefined) {
-        // We doesn't have the value - return the k closest nodes.
+        // We don't have the value - return the k closest nodes.
         const closest = getNClosest(id, k);
 
         // Create data structure for NODES RETURN.
@@ -303,30 +405,75 @@ app.get('/api/kademlia/value/:id', (req,res) => {
     res.sendStatus(200).send(JSON.stringify(resBody));            
 })
 
-app.get('/api/kademlia/iterative-value/:id', (req,res) => {
-    const id = req.params["id"];
+/**
+ * 
+ * @api {get} /api/kademlia/value/:id Attempts to find the specified value iteratively through the network
+ * @apiName FIND_VALUE
+ * @apiGroup Milestone3
+ * @apiVersion 1.0.1
+ * @apiDescription Corresponds to the Kademlia FIND_NODE as specified in the specification, including the iteration.
 
+ * 
+ * @apiHeader {String} node_address description
+ * @apiHeader {String} node_port description
+ * @apiHeader {String} node_id description
+ * @apiHeader  {String} id Random RPC ID
+ * 
+ * @apiHeaderExample {String} Request-Example (Headers):
+   { node_address: 192.168.0.102, node_port: 3000, node_id: 101, id: 123}
+ * 
+ * @apiParam {String} id The key intended for search
+ * 
+ * @apiSuccess (200) {Triple[]} array the k closest nodes
+ * 
+ * @apiSuccessExample {Triple[]} Success-Response-Example:
+    {
+    "type": "nodes",
+    "data": [
+        {
+            "ip": "192.168.0.114",
+            "port": "3004",
+            "id": "108"
+        }
+    ]
+    }
+
+    @apiSuccessExample {Triple[]} Success-Response-Example:
+    {
+    "type": "value",
+    "data": "Hello"
+    }
+ */
+app.get('/api/kademlia/iterative-value/:id', (req,res) => {
+    const reqID = req.params["id"];
     // Check if we have the data.
     const data = storage.getItemSync(id);
+    if(data !== undefined) {
+        res.status(200).send(JSON.stringify(generateDataStructure(false, reqID)))
+        return;
+    }
 
     nodeLookup(id, true, (result) => {
 
         // If we found the value, store the value at the closest node.
         if (result.type === "value") {
-            const triples = result.data;
-
-            triples = getNClosest(id, k);
-
+            const value = result.data; //This was called "triples" before, which I don't qute get due to the immediate redefinition
+            triples = getNClosest(reqID, k);
             if (triples.length > 0 ) {
                 const closest = triples[0];
 
                 // Send STORE to the closest node.
                 let options = {
-                    host: closest.address,
-                    port: closest.port,
-                    path: "/api/kademlia/store/" + id,
+                    uri: "http://" + closest.ip + ":" + closest.port + "/api/kademlia/store/",
                     method: "POST",
-                    body: result.data
+                    headers: {
+                        "node_id": id,
+                        "node_port": port,
+                        "node_address": ip.address(),
+                        "id": Math.random()*Math.pow(2,B) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+                    },
+                    body: JSON.stringify({"key": reqID, "data": value}),
+                    json: true
                 };
                 
                 request(options, (err,res,body) => {
@@ -390,7 +537,7 @@ function nodeLookup(reqID, isValueLookup, finalCallback) {
 
         async.map(triples, (triple, mapCallback) => {
             let options = {
-                uri: isValueLookup ? "http://" + triple.ip + ":" + triple.port + "/api/kademlia/value/" + reqID : "http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + reqID,
+                uri: isValueLookup ? ("http://" + triple.ip + ":" + triple.port + "/api/kademlia/value/" + reqID) : ("http://" + triple.ip + ":" + triple.port + "/api/kademlia/nodes/" + reqID),
                 headers: {
                     "node_id": id,
                     "node_port": port,
@@ -399,7 +546,7 @@ function nodeLookup(reqID, isValueLookup, finalCallback) {
                 },
                 method: "GET"
             };
-            winston.debug("Calling " + isValueLookup ? "FIND_VALUE" : "FIND_NODE" + " on "  + triple + "...")
+            winston.debug("Calling " + (isValueLookup ? "FIND_VALUE" : "FIND_NODE") + " on "  + triple + "...")
             request(options, (err, res, body) => {
                 if(!err && res.statusCode === 200) {
                     let results = JSON.parse(body);
@@ -507,7 +654,7 @@ function nodeLookup(reqID, isValueLookup, finalCallback) {
     // Perform alpha async FIND_NODE calls
 
     // let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
-    
+    //🍔
     // Aggregate k closest results (sort results by distance and take the first k)
     // Perform async FIND_NODE on alpha closest of the k
     // Continue until nothing new is established
@@ -515,6 +662,8 @@ function nodeLookup(reqID, isValueLookup, finalCallback) {
 
 /**
  * I actually hate this implementation, but I'm tired, and I found a bug
+ * 
+ * EDIT: Turns out my hate was not unfounded. It was bugged.
  * @param {*} reqID 
  * @param {*} n 
  */
@@ -525,8 +674,8 @@ function getNClosest(reqID, n) {
     if(buckets[bucketNumber] instanceof Bucket) {
         closest = closest.concat(buckets[bucketNumber].triples)
     }
-    let top = bucketNumber - 1
-    let bot = bucketNumber + 1
+    let top = bucketNumber + 1
+    let bot = bucketNumber - 1
     while(closest.length < n && (bot >= 0 || top < B)) {
         if(buckets[bot] instanceof Bucket && bot >= 0)
         closest = closest.concat(buckets[bot].triples)
@@ -535,6 +684,7 @@ function getNClosest(reqID, n) {
         bot--
         top++
     }
+    winston.silly("Closest: " + closest)
     return closest;
 }
 
@@ -589,6 +739,11 @@ function bin2Dec(bin) {
     return parseInt(bin,2).toString(10)
 }
 
+/**
+ * A little data structure for the sake of discerning between data and node returns. This is mostly used to enhance code reusde
+ * @param {*} isNodes 
+ * @param {*} data 
+ */
 function generateDataStructure(isNodes, data) {
     return {
         type: isNodes ? "nodes" : "value",

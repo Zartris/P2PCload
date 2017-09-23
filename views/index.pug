@@ -11,6 +11,37 @@ html
         div.container
             div.row
                 div.col-9
+                    h2.panel-heading Storage:
+                    table.table
+                        tr
+                            th Key
+                            th Value
+                        each val in storage
+                            tr
+                                td=val[0]
+                                td=val[1]
+                        else
+                            tr
+                                td Nothing in storage
+                                td
+                div.col-3
+                    h2.panel-heading Join Network:
+                    form(method="POST" action="/api/kademlia/join")
+                        div.form-group
+                            label(for='node_id') Node ID: 
+                            input.form-control(type="text", placeholder="000" name="node_id")
+
+                        div.form-group
+                            label(for='node_address') Node Address: 
+                            input.form-control(type="text", placeholder="127.0.0.1" name="node_address")
+                        
+                        div.form-group
+                            label(for='node_port') Node Port: 
+                            input.form-control(type="text", placeholder="3000" name="node_port")
+                        
+                        button.btn.btn-primary(type="submit") Join network
+            div.row
+                div.col-9
                     div.panel
                         h2.panel-heading Buckets:
                         table.table
@@ -29,21 +60,4 @@ html
                             else
                                 tr 
                                     td Empty Buckets
-                                    td
-                div.col-3
-                    h2.panel-heading Join Network:
-                    form(method="POST" action="/api/kademlia/join")
-                        div.form-group
-                            label(for='node_id') Node ID: 
-                            input.form-control(type="text", placeholder="000" name="node_id")
-
-                        div.form-group
-                            label(for='node_address') Node Address: 
-                            input.form-control(type="text", placeholder="127.0.0.1" name="node_address")
-                        
-                        div.form-group
-                            label(for='node_port') Node Port: 
-                            input.form-control(type="text", placeholder="3000" name="node_port")
-                        
-                        button.btn.btn-primary(type="submit") Join network
-                        
+                                    td                        
