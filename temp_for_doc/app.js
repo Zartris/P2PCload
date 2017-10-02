@@ -654,7 +654,7 @@ function nodeLookup(reqID, isValueLookup, finalCallback) {
     // Perform alpha async FIND_NODE calls
 
     // let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
-    
+    //🍔
     // Aggregate k closest results (sort results by distance and take the first k)
     // Perform async FIND_NODE on alpha closest of the k
     // Continue until nothing new is established

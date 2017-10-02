@@ -402,7 +402,7 @@ app.get('/api/kademlia/value/:id', (req,res) => {
         // Create data structure for VALUE RETURN.
         resBody = generateDataStructure(false, data)
     }
-    res.sendStatus(200).send(JSON.stringify(resBody));            
+    res.status(200).send(JSON.stringify(resBody));            
 })
 
 /**
@@ -447,7 +447,7 @@ app.get('/api/kademlia/value/:id', (req,res) => {
 app.get('/api/kademlia/iterative-value/:id', (req,res) => {
     const reqID = req.params["id"];
     // Check if we have the data.
-    const data = storage.getItemSync(id);
+    const data = storage.getItemSync(reqID);
     if(data !== undefined) {
         res.status(200).send(JSON.stringify(generateDataStructure(false, reqID)))
         return;
@@ -480,11 +480,11 @@ app.get('/api/kademlia/iterative-value/:id', (req,res) => {
                     winston.debug("STORE to" + triple.id + " returned response " + res.statusCode);
 
                     // Send the value back to the requester.
-                    res.sendStatus(200).send(JSON.stringify(result));
+                    res.status(200).send(JSON.stringify(result));
                 });
             }
         } else {
-            res.sendStatus(200).send(JSON.stringify(result));
+            res.status(200).send(JSON.stringify(result));
         }
     });               
 })
