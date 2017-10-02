@@ -12,34 +12,44 @@ sensorLib.initialize(22, 18);
 
 
 class Sensor {
-    constructor(pin, desc) {
+    constructor(pin, desc, updateCallback) {
 
         this.sensor = Gpio(pin, "in", "both")
         this.pin = pin
         this.description = desc;
         this.latestValue = 0;
-	var that = this;	
+        var that = this;	
+        var updateCallback = updateCallback;
 
-	// Temp setup
-	if (this.description === "HM") {
-		winston.debug("Setting up temp");
-		var interval = setInterval(function() {
-			var readOut = sensorLib.read();
-			// Only read temp.
-			that.latestValue = readOut.temperature;
-			winston.debug("Updated temp sensor: " + that.latestValue);
-		}, 2000);
-	} else {
+        // Temp setup
+        if (this.description === "HM") {
+            winston.debug("Setting up temp");
+            var interval = setInterval(function() {
+                var readOut = sensorLib.read();
+                // Only read temp.
+                that.latestValue = readOut.temperature;
+                winston.debug("Updated temp sensor: " + that.latestValue);
 
-	
-        this.sensor.watch((err, value) => {
-		winston.debug("Read value for sensor " + this.description + " __ " + value)
-            if(err){
-                winston.error("Sensor error " + err)
-            }
-            else this.latestValue = value
-        })
-	}
+                // Call updateCallback if it's there.
+                if (that.updateCalback !== undefined) {
+                    that.updateCalback(that.latestValue)                    
+                }
+            }, 2000);
+        } else {
+
+        
+            this.sensor.watch((err, value) => {
+            winston.debug("Read value for sensor " + this.description + " __ " + value)
+                if(err){
+                    winston.error("Sensor error " + err)
+                }
+                else this.latestValue = value
+
+                if (that.updateCalback !== undefined) {
+                    that.updateCalback(that.latestValue)                    
+                }     
+           })
+        }
 	
     }
 
@@ -78,6 +88,9 @@ var Gpio = onoff.Gpio
 const port = process.argv[2] ? parseInt(process.argv[2]) : 3003;
 var actuators = []
 var sensors = []
+
+const id = Math.floor(Math.random()*Math.pow(2,8));
+
 
 winston.level = "debug";
 winston.debug("Logging in debug mode");
@@ -225,6 +238,46 @@ app.get("/WoT", (req, res) => {
         });
     }
 })
+
+
+
+app.post("/wot/register", (req, res, next) => {
+    
+    // Extract the new IP and port that this wot device should report to.
+    const newIp = req.body.ip;
+    const newPort = req.body.port;
+
+    // Setup new updateCallback for all sensors.
+    const newUpdateCallback = (newData) => {
+        // Report to the responsible wot ds. Set 'isIterative' flag to true which causes the wot ds node to replicate the data.
+        let options = {
+            uri: "http://" + newIp + ":" + newPort + "/api/ds/storage",
+            method: "POST",
+            headers: {
+                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+            },
+            body: JSON.stringify({"sensorData": newData, "isIterative": true, "wotId": id}),            
+            json: true
+        };
+
+        request(options, (err,res,body) => {
+            if (err !== undefined) {
+                winston.debug(err);
+                return;
+            }
+
+            winston.debug("Wot " + id + " sent data: " + newData + " to " + newIp + ":" + newPort);
+        });
+    }
+
+    // Assign the callback to all sensors.
+    sensors.forEach((sensor) => {
+        sensor.callback = newUpdateCallback;
+    });
+    
+    res.sendStatus(200);
+})
+
 
 process.on('SIGINT', () => {
     winston.info("Sensors properly disabled")

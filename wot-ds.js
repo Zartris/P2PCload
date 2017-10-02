@@ -31,7 +31,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
 
         // Call WoT to indicate that it should report to this device.
         let options = {
-            uri: "http://" + dsIp + ":" + dsPort + "/api/register",
+            uri: "http://" + dsIp + ":" + dsPort + "/wot/register",
             method: "POST",
             headers: {
                 "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
@@ -55,7 +55,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
     
 app.post('/api/ds/storage/', (req, firstRes, next) => {
 
-    const sensorData = req.body.sensor;
+    const sensorData = req.body.sensorData;
     const isIterative = req.body.isIterative;
     const wotId = req.body.wotId;
 
@@ -74,7 +74,7 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
                 uri: "http://" + element.ip + ":" + (element.ip - 1000) + "/api/ds/storage",
                 method: "POST",
                 headers: {
-                    "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+                    "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
                 },
                 body: JSON.stringify({"data": sensorData, "wotId": wotId, "isIterative": false}),            
                 json: true
@@ -103,7 +103,7 @@ function findNodesKademlia(wotId, callback) {
         uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/nodes/" + wotId,
         method: "GET",
         headers: {
-            "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+            "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
         },
         json: true
     };
