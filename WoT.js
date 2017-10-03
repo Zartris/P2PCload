@@ -39,7 +39,7 @@ class Sensor {
 
         
             this.sensor.watch((err, value) => {
-            winston.debug("Read value for sensor " + this.description + " __ " + value)
+                winston.debug("Read value for sensor " + this.description + " __ " + value)
                 if(err){
                     winston.error("Sensor error " + err)
                 }

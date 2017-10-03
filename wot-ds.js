@@ -6,6 +6,7 @@ const async = require("async");
 const request = require("request");
 const bodyParser = require("body-parser");
 var storage = require('node-persist');
+const app = express();
 
 app.set("view engine", "pug");
 app.use(bodyParser.json());
@@ -98,6 +99,11 @@ app.listen(port, () => {
     console.log('Kademlia node listening on port ' + port + "!")
 })
 
+/**
+ * Call the FIND_NODE from the Kademlia API 
+ * @param {*} wotId 
+ * @param {*} callback 
+ */
 function findNodesKademlia(wotId, callback) {
     let options = {
         uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/nodes/" + wotId,
@@ -132,6 +138,32 @@ function generateId(text) {
     return id;
 }
 
-function saveData(data, id) {
-    // Save data somehow.
+/**
+ * Saves a new data point for the given wot id.
+ * @param {*} data 
+ * @param {*} wotId 
+ */
+function saveData(data, wotId) {
+    // We use node-persist for storage.
+    // The data is saved with the wot id as the key.
+    // The value is a dictionary of timestamp (EPOCH) + sensor-data.
+    //
+    //   Example of temperature data of wot device with id 123
+    // Stored for key 123
+    // [
+    //      { timestamp: 223452345, data: 24.5 },
+    //      { timestamp: 123123123, data: 24.6 }
+    // ]   
+
+    // Get the data for the wot id.
+    let existingData = storage.getItemSync(wotId) || [];
+
+    // Append the new data point object to the array of objects.
+    const newDataPoint = { timestamp: Date().now, data: data }
+    existingData.push(newDataPoint)
+
+    // Save the data.
+    storage.setItemSync(wotId, existingData)
+
+    winston.debug("Persisted data " + newDataPoint + " for id " + wotId)
 }
