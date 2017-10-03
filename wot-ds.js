@@ -44,7 +44,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
         request(options, (err,res,body) => {
             if (err !== undefined) {
                 winston.debug(err);
-                firstRes.statusCode(500).send(err);
+                firstRes.status(500).send(err);
                 return;
             }
 
@@ -59,8 +59,9 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
     const sensorData = req.body.sensorData;
     const isIterative = req.body.isIterative;
     const wotId = req.body.wotId;
+    const timestamp = req.body.timestamp;
 
-    saveData(sensorData, wotId);
+    saveData(sensorData, wotId, timestamp);
 
     if (!isIterative) {
         firstRes.sendStatus(200);
@@ -72,19 +73,19 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
 
          nodes.forEach(function(element) {
              let options = {
-                uri: "http://" + element.ip + ":" + (element.ip - 1000) + "/api/ds/storage",
+                uri: "http://" + element.ip + ":" + (element.port - 1000) + "/api/ds/storage",
                 method: "POST",
                 headers: {
                     "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
                 },
-                body: JSON.stringify({"data": sensorData, "wotId": wotId, "isIterative": false}),            
+                body: {"timestamp": timestamp, "sensorData": sensorData, "wotId": wotId, "isIterative": false},            
                 json: true
             };
 
             request(options, (err,res,body) => {
-                if (err !== undefined) {
+                if (err !== undefined && err !== null) {
                     winston.debug(err);
-                    firstRes.statusCode(500).send(err);
+                    firstRes.status(500).send(err);
                     return;
                 }
 
@@ -124,12 +125,12 @@ function findNodesKademlia(wotId, callback) {
     };
     
     request(options, (err,res,body) => {
-        if (err !== undefined) {
+        if (err !== undefined && err !== null) {
             winston.debug(err);         
             return;
         }
         winston.debug("Find nodes call on Kademlia API success: " + body.nodes);
-        callback(body.nodes);
+        callback(body.data);
     });
 }
 
@@ -151,7 +152,7 @@ function generateId(text) {
  * @param {*} data 
  * @param {*} wotId 
  */
-function saveData(data, wotId) {
+function saveData(data, wotId, timestamp) {
     // We use node-persist for storage.
     // The data is saved with the wot id as the key.
     // The value is a dictionary of timestamp (EPOCH) + sensor-data.
@@ -167,7 +168,7 @@ function saveData(data, wotId) {
     let existingData = storage.getItemSync(wotId) || [];
 
     // Append the new data point object to the array of objects.
-    const newDataPoint = { timestamp: Date.now(), data: data }
+    const newDataPoint = { timestamp: timestamp, data: data }
     existingData.push(newDataPoint);
 
     // Save the data.
