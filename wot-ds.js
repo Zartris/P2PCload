@@ -33,6 +33,8 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
         const dsIp = resPeer.ip;
 
         // Call WoT to indicate that it should report to this device.
+        //dsIp and dsPort seems to be the wrong place to call. We should call WotIp and port
+        //And get these.
         let options = {
             uri: "http://" + dsIp + ":" + dsPort + "/wot/register",
             method: "POST",
@@ -87,7 +89,7 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
 
         })
     }
-    if(isIterative) {
+   /* if(isIterative) {
         let options = {
             uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/storage-iterative/",
             method: "POST",
@@ -113,9 +115,9 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
             }
 
 
-        })
+            }) 
     }
-
+*/
     if (!isIterative) {
         //Hopefully timers are async
         // Remember to change seconds to depend on sensor metadata updaterate.
