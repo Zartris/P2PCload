@@ -12,8 +12,10 @@ app.set("view engine", "pug");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 const port = process.argv[2] ? parseInt(process.argv[2]) : 2003;
+const myIp = ip.address()
 
 const kademliaPort = port + 1000;
+var timers = {}
 
 // Setup storage.
 storage.initSync();
@@ -63,7 +65,65 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
 
     saveData(sensorData, wotId, timestamp);
 
+    function recovery(wotId) {
+        let options = {
+            uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/value/"+wotId,
+            method: "GET",
+            headers: {
+                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+            },            
+            json: true
+        };
+
+        request(options, (err,res,body) => {
+            if (err !== undefined && err !== null) {
+                winston.debug(err);
+                firstRes.status(500).send(err);
+                return;
+            }
+            dsIp = body.wotId.dsIp
+            dsPort = body.wotId.dsPort
+            
+
+        })
+    }
+    if(isIterative) {
+        let options = {
+            uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/storage-iterative/",
+            method: "POST",
+            headers: {
+                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+            },
+            body: {wotId: 
+                {
+                    "dsIp": myIp,
+                    "dsPort": port,
+                    "wotIp": wotIp,
+                    "wotPort": wotPort
+                }
+            },            
+            json: true
+        };
+
+        request(options, (err,res,body) => {
+            if (err !== undefined && err !== null) {
+                winston.debug(err);
+                firstRes.status(500).send(err);
+                return;
+            }
+
+
+        })
+    }
+
     if (!isIterative) {
+        //Hopefully timers are async
+        // Remember to change seconds to depend on sensor metadata updaterate.
+        //setTimeout takes: (called function), time, (param1 to function), etc...
+        if(timers[wotId] !== undefined && timers[wotId] !== null) {
+            clearTimeout(timers[wotId])
+        }
+        timers[wotId] = setTimeout(recovery, 10000, wotId)
         firstRes.sendStatus(200);
         return;
     }
@@ -95,6 +155,8 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
          }, this);
     })
 })
+
+
 
 app.get('/api/ds/storage/:wotId', (req, res, next) => {
     const wotId = req.params["wotId"];
