@@ -16,7 +16,7 @@ const port = process.argv[2] ? parseInt(process.argv[2]) : 2003;
 const kademliaPort = port + 1000;
 
 // Setup storage.
-storage.init();
+storage.initSync();
 
 app.post('/api/ds/register/:url', (req, firstRes, next) => {
     const url = req.params["url"]
@@ -44,7 +44,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
         request(options, (err,res,body) => {
             if (err !== undefined) {
                 winston.debug(err);
-                res.statusCode(500).send(err);
+                firstRes.statusCode(500).send(err);
                 return;
             }
 
@@ -63,7 +63,7 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
     saveData(sensorData, wotId);
 
     if (!isIterative) {
-        res.sendStatus(200);
+        firstRes.sendStatus(200);
         return;
     }
 
@@ -84,7 +84,7 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
             request(options, (err,res,body) => {
                 if (err !== undefined) {
                     winston.debug(err);
-                    res.statusCode(500).send(err);
+                    firstRes.statusCode(500).send(err);
                     return;
                 }
 
@@ -94,6 +94,15 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
          }, this);
     })
 })
+
+app.get('/api/ds/storage/:wotId', (req, res, next) => {
+    const wotId = req.params["wotId"];
+
+    const data = storage.getItemSync(wotId);
+
+    res.send(data);
+})
+    
 
 app.listen(port, () => {
     console.log('Kademlia node listening on port ' + port + "!")
@@ -116,11 +125,10 @@ function findNodesKademlia(wotId, callback) {
     
     request(options, (err,res,body) => {
         if (err !== undefined) {
-            winston.debug(err);
-            res.statusCode(500).send(err);            
+            winston.debug(err);         
             return;
         }
-
+        winston.debug("Find nodes call on Kademlia API success: " + body.nodes);
         callback(body.nodes);
     });
 }
@@ -159,8 +167,8 @@ function saveData(data, wotId) {
     let existingData = storage.getItemSync(wotId) || [];
 
     // Append the new data point object to the array of objects.
-    const newDataPoint = { timestamp: Date().now, data: data }
-    existingData.push(newDataPoint)
+    const newDataPoint = { timestamp: Date.now(), data: data }
+    existingData.push(newDataPoint);
 
     // Save the data.
     storage.setItemSync(wotId, existingData)
