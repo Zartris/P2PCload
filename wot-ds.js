@@ -21,8 +21,8 @@ var timers = {}
 storage.initSync();
 
 app.post('/api/ds/register/:url', (req, firstRes, next) => {
-    const url = req.params["url"]
-    const wotId = generateId(url)
+    const sensorUrl = req.params["url"]
+    const wotId = generateId(sensorUrl)
 
     findNodesKademlia(wotId, (nodes) => {
         const sortedClosest = nodes.sort((x, y) => (distance(wotId, x.id) - distance(wotId, y.id)))
@@ -32,13 +32,8 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
         const dsPort = resPeer.port - 1000;
         const dsIp = resPeer.ip;
 
-        // Call WoT to indicate that it should report to this device.
-        //dsIp and dsPort seems to be the wrong place to call. We should call WotIp and port
-        //And get these.
-        // JSL: That's right
-        // TODO
         let options = {
-            uri: "http://" + dsIp + ":" + dsPort + "/wot/register",
+            uri: "http://" + sensorUrl + "/wot/register",
             method: "POST",
             headers: {
                 "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
@@ -113,16 +108,18 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
     })
 })
 
-
-
 app.get('/api/ds/storage/:wotId', (req, res, next) => {
     const wotId = req.params["wotId"];
     
     const data = storage.getItemSync(wotId);
 
     res.send(data);
+})  
+
+app.get('/api/ds/ping', (req,res) => {
+    res.sendStatus(200);
+    winston.info("Ping recieved from " + req.hostname + ":" + req.port);
 })
-    
 
 app.listen(port, () => {
     console.log('Kademlia node listening on port ' + port + "!")
@@ -183,20 +180,61 @@ function recovery(wotId) {
             firstRes.status(500).send(err);
             return;
         }
-        dsIp = body.data.dsIp
-        dsPort = body.data.dsPort
+        wotIp = body.data.wotIp;
+        wotPort = body.data.wotPort;
         
-
-
-
+        pingNode((success) => {
+            // If it's dead, register the sensor again.
+            if (!success) {
+                let options = {
+                    uri: "http://127.0.0.1:" + port + "/api/ds/register" + wotIp + ":" + wotPort,
+                    method: "POST",
+                    headers: {
+                        "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+                    },            
+                    json: true
+                };
+            
+                request(options, (err,res,body) => {
+                    if (err !== undefined && err !== null) {
+                        winston.debug(err);
+                        firstRes.status(500).send(err);
+                        return;
+                    }
+                    
+                    winston.info("Register success for sensor " + wotIp + ":" + wotPort)
+                })
+            }
+        })
     })
 }
 
+/**
+ * Pings a ds node with the given IP and port. Callback returns either false or true.
+ * @param {*} ip 
+ * @param {*} port 
+ * @param {*} callback 
+ */
 function pingNode(ip, port, callback) {
+    let options = {
+        uri: ip + port + "/api/ds/ping",
+        method: "POST",
+        headers: {
+            "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+        },            
+        json: true
+    };
 
-
-    // TODO: Fix this.
-    callback(true)
+    request(options, (err,res,body) => {
+        if (err !== undefined && err !== null) {
+            winston.debug(err);
+            callback(false);
+            return;
+        }
+        
+        callback(true);
+        winston.info("Register success for sensor " + wotIp + ":" + wotPort)
+    })
 }
 
 
