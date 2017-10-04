@@ -35,13 +35,15 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
         // Call WoT to indicate that it should report to this device.
         //dsIp and dsPort seems to be the wrong place to call. We should call WotIp and port
         //And get these.
+        // JSL: That's right
+        // TODO
         let options = {
             uri: "http://" + dsIp + ":" + dsPort + "/wot/register",
             method: "POST",
             headers: {
                 "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
             },
-            body: JSON.stringify({"ip": dsPort, "port": dsIp}),            
+            body: {"ip": dsPort, "port": dsIp},            
             json: true
         };
 
@@ -66,66 +68,19 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
     const timestamp = req.body.timestamp;
 
     saveData(sensorData, wotId, timestamp);
-
-    function recovery(wotId) {
-        let options = {
-            uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/value/"+wotId,
-            method: "GET",
-            headers: {
-                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
-            },            
-            json: true
-        };
-
-        request(options, (err,res,body) => {
-            if (err !== undefined && err !== null) {
-                winston.debug(err);
-                firstRes.status(500).send(err);
-                return;
-            }
-            dsIp = body.wotId.dsIp
-            dsPort = body.wotId.dsPort
-            
-
-        })
+    
+    // If this is the node responsible for the wot device (this call is iterative), save it's meta data to Kademlia.
+    if (isIterative) {
+        const wotIp = req.ip;
+        const wotPort = req.port;
+        saveMetadata(wotIp, wotPort)
     }
-   /* if(isIterative) {
-        let options = {
-            uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/storage-iterative/",
-            method: "POST",
-            headers: {
-                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
-            },
-            body: {wotId: 
-                {
-                    "dsIp": myIp,
-                    "dsPort": port,
-                    "wotIp": wotIp,
-                    "wotPort": wotPort
-                }
-            },            
-            json: true
-        };
 
-        request(options, (err,res,body) => {
-            if (err !== undefined && err !== null) {
-                winston.debug(err);
-                firstRes.status(500).send(err);
-                return;
-            }
+    // Start timer for the wotId.
+    // Note: This should be done for ALL ds nodes, not just only the ds node responsible for the wot device.
+    setupTimer(wotId);
 
-
-            }) 
-    }
-*/
     if (!isIterative) {
-        //Hopefully timers are async
-        // Remember to change seconds to depend on sensor metadata updaterate.
-        //setTimeout takes: (called function), time, (param1 to function), etc...
-        if(timers[wotId] !== undefined && timers[wotId] !== null) {
-            clearTimeout(timers[wotId])
-        }
-        timers[wotId] = setTimeout(recovery, 10000, wotId)
         firstRes.sendStatus(200);
         return;
     }
@@ -162,7 +117,7 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
 
 app.get('/api/ds/storage/:wotId', (req, res, next) => {
     const wotId = req.params["wotId"];
-
+    
     const data = storage.getItemSync(wotId);
 
     res.send(data);
@@ -198,6 +153,52 @@ function findNodesKademlia(wotId, callback) {
     });
 }
 
+function setupTimer(wotId) {
+    // Hopefully timers are async
+    // Remember to change seconds to depend on sensor metadata updaterate.
+    //setTimeout takes: (called function), time, (param1 to function), etc...
+    if(timers[wotId] !== undefined && timers[wotId] !== null) {
+        clearTimeout(timers[wotId])
+    }
+    timers[wotId] = setTimeout(recovery, 10000, wotId)
+}
+
+/**
+ * Recovery function that is triggered when data is no longer received from a sensor (through a ds node).
+ * @param {*} wotId 
+ */
+function recovery(wotId) {
+    let options = {
+        uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/value/"+wotId,
+        method: "GET",
+        headers: {
+            "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+        },            
+        json: true
+    };
+
+    request(options, (err,res,body) => {
+        if (err !== undefined && err !== null) {
+            winston.debug(err);
+            firstRes.status(500).send(err);
+            return;
+        }
+        dsIp = body.data.dsIp
+        dsPort = body.data.dsPort
+        
+
+
+
+    })
+}
+
+function pingNode(ip, port, callback) {
+
+
+    // TODO: Fix this.
+    callback(true)
+}
+
 
 /**
  * Generates id
@@ -209,6 +210,41 @@ function generateId(text) {
     const binId = parseInt(sub);
     id = bin2Dec(binId);
     return id;
+}
+
+/**
+ * Saves metadata about the wot device to kademlia.
+ * @param {*} wotIp 
+ * @param {*} wotPort 
+ */
+function saveMetadata(wotIp, wotPort) {
+    let options = {
+        uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/storage-iterative/",
+        method: "POST",
+        headers: {
+            "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+        },
+        body: {
+            key: wotId,
+            data: {
+                "dsIp": myIp,
+                "dsPort": port,
+                "wotIp": wotIp,
+                "wotPort": wotPort
+            }
+        },            
+        json: true
+    };
+
+    request(options, (err,res,body) => {
+        if (err !== undefined && err !== null) {
+            winston.debug(err);
+            firstRes.status(500).send(err);
+            return;
+        }
+
+
+    }) 
 }
 
 /**

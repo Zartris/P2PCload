@@ -256,7 +256,7 @@ app.post("/wot/register", (req, res, next) => {
             headers: {
                 "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
             },
-            body: JSON.stringify({"sensorData": newData, "isIterative": true, "wotId": id, "wotIp": ip.address}),            
+            body: {"sensorData": newData, "isIterative": true, "wotId": id, "wotIp": ip.address},            
             json: true
         };
 
