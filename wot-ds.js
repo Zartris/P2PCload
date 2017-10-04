@@ -20,6 +20,22 @@ var timers = {}
 // Setup storage.
 storage.initSync();
 
+app.get("/api/ds/HistoricalData/:id", (req, res) => {
+    let reqID = (req.params["id"])
+    const data = storage.getItemSync(reqID + "_ds").sort((x,y) => x.timestamp - y.timestamp);
+
+	winston.debug(data);
+
+    if(req.header("Accept") === "application/json") {
+        res.send(JSON.stringify(data))
+    }
+    else {
+        res.render("wot-ds", {
+            rData: data
+        });
+    }
+})
+
 app.post('/api/ds/register/:url', (req, firstRes, next) => {
     const sensorUrl = req.params["url"]
     const wotId = generateId(sensorUrl)
