@@ -66,16 +66,13 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
     
     // If this is the node responsible for the wot device (this call is iterative), save it's meta data to Kademlia.
     if (isIterative) {
-        const wotIp = req.ip;
+        const wotIp = req.hostname;
         const wotPort = req.port;
-        saveMetadata(wotIp, wotPort)
-    }
+        saveMetadata(wotIp, wotId, wotPort)
+    } else {
+        // Start timer for the wotId.
+        setupTimer(wotId);
 
-    // Start timer for the wotId.
-    // Note: This should be done for ALL ds nodes, not just only the ds node responsible for the wot device.
-    setupTimer(wotId);
-
-    if (!isIterative) {
         firstRes.sendStatus(200);
         return;
     }
@@ -111,7 +108,7 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
 app.get('/api/ds/storage/:wotId', (req, res, next) => {
     const wotId = req.params["wotId"];
     
-    const data = storage.getItemSync(wotId);
+    const data = storage.getItemSync(wotId + "_ds");
 
     res.send(data);
 })  
@@ -182,8 +179,10 @@ function recovery(wotId) {
         }
         wotIp = body.data.wotIp;
         wotPort = body.data.wotPort;
-        
-        pingNode((success) => {
+        dsIp = body.data.dsIp;
+        dsPort = body.data.dsPort;
+
+        pingNode(dsIp, dsPort, (success) => {
             // If it's dead, register the sensor again.
             if (!success) {
                 let options = {
@@ -204,6 +203,8 @@ function recovery(wotId) {
                     
                     winston.info("Register success for sensor " + wotIp + ":" + wotPort)
                 })
+            } else {
+                winston.info(dsIp + ":" + dsPort + " is still alive! Yay!")
             }
         })
     })
@@ -217,8 +218,8 @@ function recovery(wotId) {
  */
 function pingNode(ip, port, callback) {
     let options = {
-        uri: ip + port + "/api/ds/ping",
-        method: "POST",
+        uri: "http://" + ip + ":" + port + "/api/ds/ping",
+        method: "GET",
         headers: {
             "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
         },            
@@ -233,7 +234,7 @@ function pingNode(ip, port, callback) {
         }
         
         callback(true);
-        winston.info("Register success for sensor " + wotIp + ":" + wotPort)
+        winston.info("Succesful ping to " + ip + ":" + port)
     })
 }
 
@@ -255,7 +256,7 @@ function generateId(text) {
  * @param {*} wotIp 
  * @param {*} wotPort 
  */
-function saveMetadata(wotIp, wotPort) {
+function saveMetadata(wotIp, wotId, wotPort) {
     let options = {
         uri: "http://127.0.0.1:" + kademliaPort + "/api/kademlia/storage-iterative/",
         method: "POST",
@@ -303,14 +304,14 @@ function saveData(data, wotId, timestamp) {
     // ]   
 
     // Get the data for the wot id.
-    let existingData = storage.getItemSync(wotId) || [];
+    let existingData = storage.getItemSync(wotId + "_ds") || [];
 
     // Append the new data point object to the array of objects.
     const newDataPoint = { timestamp: timestamp, data: data }
     existingData.push(newDataPoint);
 
     // Save the data.
-    storage.setItemSync(wotId, existingData)
+    storage.setItemSync(wotId + "_ds", existingData)
 
     winston.debug("Persisted data " + newDataPoint + " for id " + wotId)
 }
