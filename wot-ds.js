@@ -25,8 +25,11 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
     const wotId = generateId(sensorUrl)
 
     findNodesKademlia(wotId, (nodes) => {
-        const sortedClosest = nodes.sort((x, y) => (distance(wotId, x.id) - distance(wotId, y.id)))
+        nodes.push({ port: port, ip: myIp})
         
+        const sortedClosest = nodes.sort((x, y) => (distance(wotId, x.id) - distance(wotId, y.id)))
+                
+
         // Find peer responsible to new WoT.
         const resPeer = sortedClosest[0];
         const dsPort = resPeer.port - 1000;
@@ -36,14 +39,14 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
             uri: "http://" + sensorUrl + "/wot/register",
             method: "POST",
             headers: {
-                "id": Math.floor(Math.random()*Math.pow(2,B)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
             },
             body: {"ip": dsPort, "port": dsIp},            
             json: true
         };
 
         request(options, (err,res,body) => {
-            if (err !== undefined) {
+            if (err !== undefined && err !== null) {
                 winston.debug(err);
                 firstRes.status(500).send(err);
                 return;
@@ -119,7 +122,7 @@ app.get('/api/ds/ping', (req,res) => {
 })
 
 app.listen(port, () => {
-    console.log('Kademlia node listening on port ' + port + "!")
+    console.log('Wot-DS node listening on port ' + port + "!")
 })
 
 /**
@@ -232,9 +235,8 @@ function pingNode(ip, port, callback) {
             callback(false);
             return;
         }
-        
+        winston.info("Succesful ping to " + ip + ":" + port)        
         callback(true);
-        winston.info("Succesful ping to " + ip + ":" + port)
     })
 }
 
@@ -281,8 +283,8 @@ function saveMetadata(wotIp, wotId, wotPort) {
             firstRes.status(500).send(err);
             return;
         }
-
-
+        
+        winston.info("Saved metadata in Kademlia for " + wotId)
     }) 
 }
 
@@ -313,5 +315,25 @@ function saveData(data, wotId, timestamp) {
     // Save the data.
     storage.setItemSync(wotId + "_ds", existingData)
 
-    winston.debug("Persisted data " + newDataPoint + " for id " + wotId)
+    winston.info("Persisted data " + newDataPoint + " for id " + wotId)
+}
+
+function distance(a, b) {
+    return parseInt(a) ^ parseInt(b);
+}
+
+/**
+ * https://stackoverflow.com/questions/45053624/convert-hex-to-binary-in-javascript
+ * @param {*} hex 
+ */
+function hex2bin(hex){
+    return (parseInt(hex, 16)).toString(2);
+}
+
+/**
+ * https://stackoverflow.com/questions/7695450/how-to-program-hex2bin-in-javascript
+ * @param {*} n 
+ */
+function bin2Dec(bin) {
+    return parseInt(bin,2).toString(10)
 }

@@ -266,7 +266,7 @@ app.post("/wot/register", (req, res, next) => {
                 return;
             }
 
-            winston.debug("Wot " + id + " sent data: " + newData + " to " + newIp + ":" + newPort);
+            winston.info("Wot " + id + " sent data: " + newData + " to " + newIp + ":" + newPort);
         });
     }
 
