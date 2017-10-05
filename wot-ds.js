@@ -11,7 +11,7 @@ const app = express();
 app.set("view engine", "pug");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-const port = process.argv[2] ? parseInt(process.argv[2]) : 2003;
+const port = process.argv[2] ? parseInt(process.argv[2]) : 2005;
 const myIp = ip.address()
 
 const kademliaPort = port + 1000;
@@ -48,7 +48,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
 
         // Find peer responsible to new WoT.
         const resPeer = sortedClosest[0];
-        const dsPort = resPeer.port - 1000;
+        const dsPort = resPeer.port;
         const dsIp = resPeer.ip;
 
         let options = {
@@ -57,7 +57,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
             headers: {
                 "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
             },
-            body: {"ip": dsPort, "port": dsIp},            
+            body: {"ip": dsIp, "port": dsPort.toString()},            
             json: true
         };
 
@@ -67,7 +67,7 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
                 firstRes.status(500).send(err);
                 return;
             }
-
+            winston.info("Succesfully registered wot device: " + wotId)
             // WoT has succesfully joined!
             firstRes.sendStatus(200);
         });
@@ -80,13 +80,13 @@ app.post('/api/ds/storage/', (req, firstRes, next) => {
     const isIterative = req.body.isIterative;
     const wotId = req.body.wotId;
     const timestamp = req.body.timestamp;
+    const wotIp = req.body.wotIp;
+    const wotPort = req.body.wotPort;
 
     saveData(sensorData, wotId, timestamp);
     
     // If this is the node responsible for the wot device (this call is iterative), save it's meta data to Kademlia.
     if (isIterative) {
-        const wotIp = req.hostname;
-        const wotPort = req.port;
         saveMetadata(wotIp, wotId, wotPort)
     } else {
         // Start timer for the wotId.
@@ -205,7 +205,7 @@ function recovery(wotId) {
             // If it's dead, register the sensor again.
             if (!success) {
                 let options = {
-                    uri: "http://127.0.0.1:" + port + "/api/ds/register" + wotIp + ":" + wotPort,
+                    uri: "http://127.0.0.1:" + port + "/api/ds/register/" + wotIp + ":" + wotPort,
                     method: "POST",
                     headers: {
                         "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
@@ -282,7 +282,7 @@ function saveMetadata(wotIp, wotId, wotPort) {
             "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
         },
         body: {
-            key: wotId,
+            key: wotId.toString(),
             data: {
                 "dsIp": myIp,
                 "dsPort": port,
