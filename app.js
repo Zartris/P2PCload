@@ -76,7 +76,7 @@ class Bucket {
 app.set("view engine", "pug");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-const port = process.argv[2] ? parseInt(process.argv[2]) : 3003;
+const port = process.argv[2] ? parseInt(process.argv[2]) : 3005;
 const connectToIp = process.argv[3];
 const connectToPort = process.argv[4];
 const connectToId = process.argv[5];
@@ -133,6 +133,7 @@ app.post('/api/kademlia/join', (req, res, next) => {
  */
 app.get('/api/kademlia', (req, res) =>{
         let keys = storage.keys();
+        keys = keys.filter( (element) => !element.includes("_ds"));
         res.render("index", {
         nodeid: id, 
         bucketlist: buckets, 
