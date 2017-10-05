@@ -1,4 +1,5 @@
 const express = require('express');
+const ip = require("ip");
 const winston = require("winston");
 const request = require("request");
 const bodyParser = require("body-parser");
@@ -31,8 +32,9 @@ class Sensor {
                 winston.debug("Updated temp sensor: " + that.latestValue);
 
                 // Call updateCallback if it's there.
-                if (that.updateCalback !== undefined) {
-                    that.updateCalback(that.latestValue)                    
+		winston.info("Before callback in sensor class");
+                if (that.updateCallback !== undefined) {
+                    that.updateCallback(that.latestValue)                    
                 }
             }, 2000);
         } else {
@@ -104,12 +106,13 @@ config.sensors.forEach((x) => sensors.push(new Sensor(x.pin, x.description)))
 winston.debug(sensors);
 
 app.set("view engine", "pug");
+app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
 app.use("/static", express.static("/public"));
 
 
 app.listen(port, () => {
-    console.log('WoT node listening on port ' + port + "!")
+    console.log('WoT node listening on port ' + port + ", with ip " + ip.address())
 })
 
 /**
@@ -245,10 +248,13 @@ app.post("/wot/register", (req, res, next) => {
     
     // Extract the new IP and port that this wot device should report to.
     const newIp = req.body.ip;
-    const newPort = req.body.port;
+    let newPort = req.body.port;
+
+	if (newPort > 3000) newPort -= 1000;	
 
     // Setup new updateCallback for all sensors.
     const newUpdateCallback = (newData) => {
+	winston.info("starting report");
         // Report to the responsible wot ds. Set 'isIterative' flag to true which causes the wot ds node to replicate the data.
         let options = {
             uri: "http://" + newIp + ":" + newPort + "/api/ds/storage",
@@ -256,12 +262,17 @@ app.post("/wot/register", (req, res, next) => {
             headers: {
                 "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
             },
-            body: {"sensorData": newData, "isIterative": true, "wotId": id, "wotIp": ip.address},            
+            body: {"timestamp": Date.now() ,"sensorData": newData, "isIterative": true, "wotId": id, "wotIp": ip.address(), "wotPort": port},            
             json: true
         };
 
         request(options, (err,res,body) => {
-            if (err !== undefined) {
+            if (err !== undefined && err !== null) {
+		 for (i = 0; i < sensors.length; i++) {
+        		let sensor = sensors[i];
+        		sensor.updateCallback = undefined;
+			winston.info("assigned callback to undefined");
+   		 }
                 winston.debug(err);
                 return;
             }
@@ -271,10 +282,16 @@ app.post("/wot/register", (req, res, next) => {
     }
 
     // Assign the callback to all sensors.
-    sensors.forEach((sensor) => {
-        sensor.callback = newUpdateCallback;
-    });
-    
+    //sensors.forEach((sensor) => {
+    //    sensor.callback = newUpdateCallback;
+    //}, this);
+    for (i = 0; i < sensors.length; i++) {
+        let sensor = sensors[i];
+        sensor.updateCallback = newUpdateCallback;
+	winston.info("assigned new callback");
+    }
+
+    winston.info("Succesfully registered new  ds node: " + newIp + ":" + newPort);	
     res.sendStatus(200);
 })
 

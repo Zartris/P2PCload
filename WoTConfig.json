@@ -6,10 +6,6 @@
         }
     ],
     "sensors": [
-        {
-            "pin": 15,
-            "description": "Væksthuset!"
-        },
 	{
             "pin": 18,
             "description": "HM"
