@@ -5,73 +5,15 @@ const winston = require("winston");
 const async = require("async");
 const request = require("request");
 const bodyParser = require("body-parser");
+const Bucket = require("./bucket.js");
+const Triple = require("./triple.js");
 var storage = require('node-persist');
 
 const app = express();
 
+//Set up logging
 winston.level = "debug";
 winston.debug("Logging in " + winston.level + " mode");
-
-class Triple {
-    constructor(ip, port, id) {
-        this.ip = ip;
-        this.port = port;
-        this.id = id;
-    }
-
-    toString() {
-        return "<" + this.ip + "," + this.port + "," + this.id + ">"
-    }
-}
-
-class Bucket {
-    constructor(triple, k) {
-        this.triples = [triple];
-        this.k = k;
-    }
-
-    toString() {
-        return this.triples.join();
-    }
-
-    contains(triple) {
-        winston.silly(this.triples.map(JSON.stringify) + "; " + JSON.stringify(triple));
-        winston.silly(this.triples.map(JSON.stringify).includes(JSON.stringify(triple)));
-        return this.triples.map(JSON.stringify).includes(JSON.stringify(triple))
-    }
-
-    put(triple) {
-        if(!this.contains(triple)) {
-            if(this.triples.length < k) {
-                this.triples.push(triple);
-            }
-            else {
-            leastRecentTriple = this.triples[0];
-            let options = {
-                uri: "http://" + leastRecentTriple.ip + ":" + leastRecentTriple.port + "/api/kademlia/ping",
-                method: "POST"
-            };
-            var that = this; //WHAT?!
-            request(options, (err,res,body) => {
-                winston.debug("PING of" + leastRecentTriple.id + " returned response " + res.statusCode);
-                if(err || res.statusCode != 200) {
-                    winston.info("Dead triple removed: " + leastRecentTriple)
-                    that.triples.splice(0);
-                    that.triples.push(triple);
-                }
-            });
-            }   
-        }
-        else {
-            if(!this.triples[this.triples.length-1].id === triple.id) {
-            let index = this.triples.map(JSON.stringify).indexOf(JSON.stringify(triple));
-            this.triples.splice(index);
-            this.triples.push(triple);
-            }
-        }
-    }
-
-}
 
 app.set("view engine", "pug");
 app.use(bodyParser.json());
@@ -96,16 +38,10 @@ if ((connectToIp && connectToId && connectToPort) !== undefined) {
 
 // Setup storage.
 storage.init();
-//storage.setItemSync("42", "Test item")
-
 //This process ensures that the persistent storage is not, in fact, persistent
 //TODO: Determine whether storage should really be persistent, as it could make the network kinda volatile
-process.on('SIGINT', () => {
-    storage.clearSync();
-    winston.info("Persistent storage wiped") 
-    process.exit();
-  });
-
+storage.clearSync();
+winston.info("Persistent storage wiped") 
 
 /**
  * Joins the kademlia network.
@@ -650,21 +586,12 @@ function nodeLookup(reqID, isValueLookup, finalCallback) {
 
     // Start the first iteration by calling the whole shortlist (of length alpha)
     nodeLookupIteration(shortlist)
-
-    // ---------
-    // Perform alpha async FIND_NODE calls
-
-    // let kBestResults = allResults.sort((x, y) => (distance(reqID, x.id) - distance(reqID, id.y))).splice(0,k);
     //🍔
-    // Aggregate k closest results (sort results by distance and take the first k)
-    // Perform async FIND_NODE on alpha closest of the k
-    // Continue until nothing new is established
 }
 
 /**
  * I actually hate this implementation, but I'm tired, and I found a bug
  * 
- * EDIT: Turns out my hate was not unfounded. It was bugged.
  * @param {*} reqID 
  * @param {*} n 
  */
