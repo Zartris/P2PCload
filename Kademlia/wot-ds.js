@@ -11,7 +11,7 @@ const app = express();
 app.set("view engine", "pug");
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-const port = process.argv[2] ? parseInt(process.argv[2]) : 2005;
+const port = process.argv[2] ? parseInt(process.argv[2]) : 2006;
 const myIp = ip.address()
 
 const kademliaPort = port + 1000;
@@ -41,11 +41,13 @@ app.post('/api/ds/register/:url', (req, firstRes, next) => {
     const wotId = generateId(sensorUrl)
 
     findNodesKademlia(wotId, (nodes) => {
-        nodes.push({ port: port, ip: myIp})
+        
+        if (nodes.length === 0) {
+            nodes.push({ port: port, ip: myIp})            
+        }
         
         const sortedClosest = nodes.sort((x, y) => (distance(wotId, x.id) - distance(wotId, y.id)))
                 
-
         // Find peer responsible to new WoT.
         const resPeer = sortedClosest[0];
         const dsPort = resPeer.port;
