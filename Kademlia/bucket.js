@@ -14,7 +14,7 @@ module.exports = class Bucket {
 
     put(triple) {
         if(!this.contains(triple)) {
-            if(this.triples.length < k) {
+            if(this.triples.length < this.k) {
                 this.triples.push(triple);
             }
             else {
