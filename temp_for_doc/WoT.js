@@ -1,76 +1,17 @@
 const express = require('express');
+const ip = require("ip");
 const winston = require("winston");
 const request = require("request");
 const bodyParser = require("body-parser");
-const onoff = require("onoff")
-const apidoc = require("apidoc")
-const fs = require("fs")
+const onoff = require("onoff");
+const apidoc = require("apidoc");
+const fs = require("fs");
+const Sensor = require("./sensor.js");
+const Actuator = require("./actuator.js");
 
 // DHT sensor setup
 const sensorLib = require('node-dht-sensor');
 sensorLib.initialize(22, 18);
-
-
-class Sensor {
-    constructor(pin, desc) {
-
-        this.sensor = Gpio(pin, "in", "both")
-        this.pin = pin
-        this.description = desc;
-        this.latestValue = 0;
-	var that = this;	
-
-	// Temp setup
-	if (this.description === "HM") {
-		winston.debug("Setting up temp");
-		var interval = setInterval(function() {
-			var readOut = sensorLib.read();
-			// Only read temp.
-			that.latestValue = readOut.temperature;
-			winston.debug("Updated temp sensor: " + that.latestValue);
-		}, 2000);
-	} else {
-
-	
-        this.sensor.watch((err, value) => {
-		winston.debug("Read value for sensor " + this.description + " __ " + value)
-            if(err){
-                winston.error("Sensor error " + err)
-            }
-            else this.latestValue = value
-        })
-	}
-	
-    }
-
-    deregister() {
-        this.sensor.unexport()
-    }
-
-    toString() {
-            return actuator.toString()
-    }
-}
-
-class Actuator {
-    constructor(pin, desc) {
-        this.actuator = new Gpio(pin, "out")
-        this.pin = pin
-        this.description = desc;
-    }
-
-    deregister() {
-        this.actuator.unexport()
-    }
-
-    writeTo(value, callback) {
-        this.actuator.write(value, callback)
-    }
-
-    toString() {
-        return this.actuator.toString()
-    }
-}
 
 const app = express();
 
@@ -78,6 +19,9 @@ var Gpio = onoff.Gpio
 const port = process.argv[2] ? parseInt(process.argv[2]) : 3003;
 var actuators = []
 var sensors = []
+
+const id = Math.floor(Math.random()*Math.pow(2,8));
+
 
 winston.level = "debug";
 winston.debug("Logging in debug mode");
@@ -91,12 +35,13 @@ config.sensors.forEach((x) => sensors.push(new Sensor(x.pin, x.description)))
 winston.debug(sensors);
 
 app.set("view engine", "pug");
+app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended: true}));
 app.use("/static", express.static("/public"));
 
 
 app.listen(port, () => {
-    console.log('WoT node listening on port ' + port + "!")
+    console.log('WoT node listening on port ' + port + ", with ip " + ip.address())
 })
 
 /**
@@ -225,6 +170,70 @@ app.get("/WoT", (req, res) => {
         });
     }
 })
+
+
+/**
+ * 
+ * @api {post} /wot/register Register data storage to WoT device
+ * @apiName Register data storage
+ * @apiGroup Milestone4
+ * @apiVersion 1.0.2
+ * @apiDescription Tells the WoT device which data storage device that it should report to. The parameters should be provided in a post body.
+ * 
+ * @apiParam {String} ip The IP of the data storage instance.
+ * @apiParam {String} port The port of the data storage instance.
+ */
+app.post("/wot/register", (req, res, next) => {
+    
+    // Extract the new IP and port that this wot device should report to.
+    const newIp = req.body.ip;
+    let newPort = req.body.port;
+
+	if (newPort > 3000) newPort -= 1000;	
+
+    // Setup new updateCallback for all sensors.
+    const newUpdateCallback = (newData) => {
+	winston.info("starting report");
+        // Report to the responsible wot ds. Set 'isIterative' flag to true which causes the wot ds node to replicate the data.
+        let options = {
+            uri: "http://" + newIp + ":" + newPort + "/api/ds/storage",
+            method: "POST",
+            headers: {
+                "id": Math.floor(Math.random()*Math.pow(2,8)) //TODO: This is a placeholder. Replace this with actual safe randomizer,
+            },
+            body: {"timestamp": Date.now() ,"sensorData": newData, "isIterative": true, "wotId": id, "wotIp": ip.address(), "wotPort": port},            
+            json: true
+        };
+
+        request(options, (err,res,body) => {
+            if (err !== undefined && err !== null) {
+		 for (i = 0; i < sensors.length; i++) {
+        		let sensor = sensors[i];
+        		sensor.updateCallback = undefined;
+			winston.info("assigned callback to undefined");
+   		 }
+                winston.debug(err);
+                return;
+            }
+
+            winston.info("Wot " + id + " sent data: " + newData + " to " + newIp + ":" + newPort);
+        });
+    }
+
+    // Assign the callback to all sensors.
+    //sensors.forEach((sensor) => {
+    //    sensor.callback = newUpdateCallback;
+    //}, this);
+    for (i = 0; i < sensors.length; i++) {
+        let sensor = sensors[i];
+        sensor.updateCallback = newUpdateCallback;
+	winston.info("assigned new callback");
+    }
+
+    winston.info("Succesfully registered new  ds node: " + newIp + ":" + newPort);	
+    res.sendStatus(200);
+})
+
 
 process.on('SIGINT', () => {
     winston.info("Sensors properly disabled")

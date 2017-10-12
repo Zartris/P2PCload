@@ -172,7 +172,17 @@ app.get("/WoT", (req, res) => {
 })
 
 
-
+/**
+ * 
+ * @api {post} /wot/register Register data storage to WoT device
+ * @apiName Register data storage
+ * @apiGroup Milestone4
+ * @apiVersion 1.0.2
+ * @apiDescription Tells the WoT device which data storage device that it should report to. The parameters should be provided in a post body.
+ * 
+ * @apiParam {String} ip The IP of the data storage instance.
+ * @apiParam {String} port The port of the data storage instance.
+ */
 app.post("/wot/register", (req, res, next) => {
     
     // Extract the new IP and port that this wot device should report to.
